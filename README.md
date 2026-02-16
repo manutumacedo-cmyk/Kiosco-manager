@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Kiosco Manager
 
-## Getting Started
+Sistema de gestión de inventario, ventas y reportes para kioscos.
 
-First, run the development server:
+## 🚀 Características
 
+- **Gestión de Productos**: CRUD completo con categorías (Bebidas, Alimento, Vasos, Otros)
+- **Sistema de Costos**: Cálculo automático de ganancia limpia (precio - costo)
+- **Punto de Venta (POS)**: Interfaz de carrito de compras con múltiples métodos de pago
+- **Reportes Diarios**: Dashboard con ganancia limpia, ventas por método y productos más vendidos
+- **Reposición**: Gestión de inventario con alertas de stock mínimo
+- **Filtros**: Búsqueda por categoría en productos y ventas
+
+## 🛠️ Tech Stack
+
+- **Frontend**: Next.js 16, React 19, TypeScript, Tailwind CSS 4
+- **Backend**: Supabase (PostgreSQL)
+- **Funcionalidades**: SQL atómico para prevenir race conditions
+
+## 📋 Requisitos Previos
+
+- Node.js 18+
+- Cuenta de Supabase
+
+## 🔧 Instalación
+
+1. Clona el repositorio:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/manutumacedo-cmyk/Kiosco-manager.git
+cd Kiosco-manager/web
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Instala las dependencias:
+```bash
+npm install
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Configura las variables de entorno:
+```bash
+# Crea un archivo .env.local con:
+NEXT_PUBLIC_SUPABASE_URL=tu-url-de-supabase
+NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-anon-key
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+4. Ejecuta las migraciones SQL en Supabase:
+- Ve a SQL Editor en tu dashboard de Supabase
+- Ejecuta los archivos en `lib/sql/`:
+  - `migrations.sql` - Funciones atómicas
+  - `add-costo-column.sql` - Columna de costo
 
-## Learn More
+5. Inicia el servidor de desarrollo:
+```bash
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+Abre [http://localhost:3000](http://localhost:3000) en tu navegador.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 📚 Estructura del Proyecto
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+web/
+├── app/                    # Páginas Next.js App Router
+│   ├── productos/         # Gestión de productos
+│   ├── ventas/nueva/      # Punto de venta
+│   └── reportes/hoy/      # Dashboard de reportes
+├── components/            # Componentes reutilizables
+├── lib/
+│   ├── services/         # Servicios de API
+│   └── sql/              # Migraciones SQL
+└── types/                # Tipos TypeScript
+```
 
-## Deploy on Vercel
+## 🎯 Uso
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. **Productos**: Crea y gestiona tu inventario con precios, costos y stock
+2. **Nueva Venta**: Procesa ventas con descuento automático de stock
+3. **Reportes**: Visualiza métricas diarias y ganancia limpia
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 📄 Licencia
+
+Este proyecto está bajo licencia MIT.
