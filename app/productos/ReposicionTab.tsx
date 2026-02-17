@@ -211,7 +211,7 @@ export default function ReposicionTab({ products }: { products: ProductMini[] })
    * 10) UI
    * ========================= */
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <ConfirmDialog
         open={!!deleteSourceTarget}
         title="Borrar proveedor"
@@ -223,18 +223,18 @@ export default function ReposicionTab({ products }: { products: ProductMini[] })
       />
 
       {/* Header de reposición */}
-      <div className="border rounded-xl p-4 space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center gap-2 md:justify-between">
+      <div className="data-card neon-hover-cyan">
+        <div className="flex flex-col md:flex-row md:items-center gap-3 md:justify-between">
           <div>
-            <div className="font-semibold">Reposición</div>
-            <div className="text-sm text-gray-600">
+            <div className="font-bold text-[var(--neon-cyan)] text-lg uppercase tracking-wide">Reposición</div>
+            <div className="text-sm text-[var(--text-secondary)] font-mono mt-1">
               Guardá lugares/proveedores y precios de compra por producto.
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <select
-              className="border rounded-lg px-3 py-2"
+              className="cyber-input"
               value={selected}
               onChange={(e) => setSelected(e.target.value)}
             >
@@ -245,37 +245,43 @@ export default function ReposicionTab({ products }: { products: ProductMini[] })
               ))}
             </select>
 
-            <button className="px-4 py-2 rounded-lg border hover:bg-gray-50" onClick={loadSources}>
+            <button className="cyber-button" onClick={loadSources}>
               Recargar
             </button>
 
             <button
-              className="px-4 py-2 rounded-lg border hover:bg-gray-50"
+              className="cyber-button-magenta"
               onClick={() => setShowForm((v) => !v)}
             >
-              {showForm ? "Ocultar nuevo dato" : "Nuevo dato"}
+              {showForm ? "Ocultar" : "Nuevo dato"}
             </button>
           </div>
         </div>
 
-        <div className="text-sm">
-          Producto: <span className="font-semibold">{selectedName}</span>
+        <div className="text-sm mt-3 pt-3 border-t border-[var(--slate-gray)]">
+          <span className="text-[var(--text-muted)] uppercase tracking-wide text-xs">Producto:</span>{" "}
+          <span className="font-bold text-[var(--neon-cyan)] font-mono">{selectedName}</span>
         </div>
       </div>
 
       {/* Registrar compra (salida + suma stock) */}
-      <div className="border rounded-xl p-4 space-y-3">
-        <div className="font-semibold">Registrar compra (reposicion)</div>
+      <div className="data-card neon-outline-magenta">
+        <div className="font-bold text-[var(--neon-magenta)] text-lg uppercase tracking-wide mb-4">
+          Registrar compra (reposicion)
+        </div>
 
         {rows.length === 0 ? (
-          <div className="text-sm text-gray-500">
-            No hay proveedores para este producto. Cargá uno en &quot;Nuevo dato&quot; primero.
+          <div className="text-center py-6">
+            <div className="text-4xl mb-3">📦</div>
+            <div className="text-sm text-[var(--text-muted)] font-mono">
+              No hay proveedores para este producto. Cargá uno en &quot;Nuevo dato&quot; primero.
+            </div>
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <select
-                className="border rounded-lg px-3 py-2"
+                className="cyber-input"
                 value={sourceId}
                 onChange={(e) => setSourceId(e.target.value)}
               >
@@ -287,22 +293,23 @@ export default function ReposicionTab({ products }: { products: ProductMini[] })
               </select>
 
               <input
-                className="border rounded-lg px-3 py-2"
+                className="cyber-input"
+                type="number"
                 placeholder="Cantidad"
                 value={cantidadCompra}
                 onChange={(e) => setCantidadCompra(e.target.value)}
               />
 
-              <div className="border rounded-lg px-3 py-2 text-sm flex items-center justify-between">
-                <span>Total</span>
-                <span className="font-semibold">
+              <div className="bg-[var(--magenta-glow)] border border-[var(--neon-magenta)] rounded-lg px-3 py-2 text-sm flex items-center justify-between">
+                <span className="text-[var(--text-muted)] uppercase tracking-wide">Total</span>
+                <span className="font-bold font-mono text-[var(--neon-magenta)]">
                   {monedaCompra} {totalCompra.toFixed(2)}
                 </span>
               </div>
             </div>
 
             <textarea
-              className="border rounded-lg px-3 py-2 w-full"
+              className="cyber-input w-full resize-none"
               rows={2}
               placeholder="Notas (opcional)"
               value={notasCompra}
@@ -312,9 +319,9 @@ export default function ReposicionTab({ products }: { products: ProductMini[] })
             <button
               onClick={registrarCompraHandler}
               disabled={savingCompra}
-              className="px-4 py-2 rounded-lg bg-black text-white disabled:opacity-50"
+              className="cyber-button-magenta w-full"
             >
-              {savingCompra ? "Registrando..." : "Registrar compra"}
+              {savingCompra ? "REGISTRANDO..." : "REGISTRAR COMPRA"}
             </button>
           </>
         )}
@@ -322,42 +329,46 @@ export default function ReposicionTab({ products }: { products: ProductMini[] })
 
       {/* Form nuevo (plegable) */}
       {showForm && (
-        <div className="border rounded-xl p-4 space-y-3">
-          <div className="font-semibold">Nuevo dato de reposición</div>
+        <div className="data-card neon-outline-cyan animate-slide-in">
+          <div className="font-bold text-[var(--neon-cyan)] text-lg uppercase tracking-wide mb-4">
+            Nuevo dato de reposición
+          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <input
-              className="border rounded-lg px-3 py-2"
+              className="cyber-input"
               placeholder="Lugar/Proveedor"
               value={lugar}
               onChange={(e) => setLugar(e.target.value)}
             />
             <input
-              className="border rounded-lg px-3 py-2"
+              className="cyber-input"
+              type="number"
+              step="0.01"
               placeholder="Precio compra"
               value={precioCompra}
               onChange={(e) => setPrecioCompra(e.target.value)}
             />
             <input
-              className="border rounded-lg px-3 py-2"
+              className="cyber-input"
               placeholder="Moneda (UYU/BRL)"
               value={moneda}
               onChange={(e) => setMoneda(e.target.value)}
             />
             <input
-              className="border rounded-lg px-3 py-2"
+              className="cyber-input"
               placeholder="Presentación (ej: pack x6)"
               value={presentacion}
               onChange={(e) => setPresentacion(e.target.value)}
             />
             <input
-              className="border rounded-lg px-3 py-2"
+              className="cyber-input"
               placeholder="Contacto (tel/whatsapp)"
               value={contacto}
               onChange={(e) => setContacto(e.target.value)}
             />
             <input
-              className="border rounded-lg px-3 py-2"
+              className="cyber-input"
               placeholder="Link/URL (opcional)"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
@@ -365,61 +376,83 @@ export default function ReposicionTab({ products }: { products: ProductMini[] })
           </div>
 
           <textarea
-            className="border rounded-lg px-3 py-2 w-full"
+            className="cyber-input w-full resize-none"
             rows={3}
             placeholder="Notas (opcional)"
             value={notas}
             onChange={(e) => setNotas(e.target.value)}
           />
 
-          <button onClick={crearSourceHandler} className="px-4 py-2 rounded-lg bg-black text-white">
-            Guardar
+          <button onClick={crearSourceHandler} className="cyber-button-magenta">
+            Guardar Proveedor
           </button>
         </div>
       )}
 
       {/* Tabla historial (proveedores) */}
-      <div className="border rounded-xl overflow-hidden">
-        <div className="px-4 py-2 border-b font-semibold">Historial para este producto</div>
+      <div className="data-card overflow-hidden p-0">
+        <div className="px-4 py-3 border-b-2 border-[var(--neon-cyan)] bg-[var(--carbon-gray)]">
+          <span className="font-bold text-[var(--neon-cyan)] uppercase tracking-wide">
+            Historial para este producto
+          </span>
+        </div>
 
         {loading ? (
-          <div className="p-4 text-sm text-gray-500">Cargando...</div>
+          <div className="p-6 text-center">
+            <div className="neon-text-cyan text-lg font-mono animate-glow">Cargando datos...</div>
+          </div>
         ) : rows.length === 0 ? (
-          <div className="p-4 text-sm text-gray-500">No hay datos todavía.</div>
+          <div className="p-6 text-center">
+            <div className="text-4xl mb-3">📋</div>
+            <div className="text-sm text-[var(--text-muted)] font-mono">No hay datos todavía.</div>
+          </div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-gray-50">
+            <thead className="bg-[var(--carbon-gray)] border-b-2 border-[var(--neon-cyan)]">
               <tr>
-                <th className="p-3 text-left">Lugar</th>
-                <th className="p-3 text-left">Precio</th>
-                <th className="p-3 text-left">Presentación</th>
-                <th className="p-3 text-left">Contacto</th>
-                <th className="p-3 text-left">Link</th>
-                <th className="p-3 text-left">Acciones</th>
+                <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Lugar</th>
+                <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Precio</th>
+                <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Presentación</th>
+                <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Contacto</th>
+                <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Link</th>
+                <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Acciones</th>
               </tr>
             </thead>
 
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="border-t">
-                  <td className="p-3">{r.lugar}</td>
+                <tr key={r.id} className="border-t border-[var(--slate-gray)] hover:bg-[var(--carbon-gray)]">
                   <td className="p-3">
-                    {r.moneda} {Number(r.precio_compra).toFixed(2)}
+                    <span className="text-[var(--text-primary)] font-medium">{r.lugar}</span>
                   </td>
-                  <td className="p-3">{r.presentacion ?? "-"}</td>
-                  <td className="p-3">{r.contacto ?? "-"}</td>
+                  <td className="p-3">
+                    <span className="font-mono text-[var(--neon-cyan)]">
+                      {r.moneda} {Number(r.precio_compra).toFixed(2)}
+                    </span>
+                  </td>
+                  <td className="p-3">
+                    <span className="text-[var(--text-secondary)]">{r.presentacion ?? "-"}</span>
+                  </td>
+                  <td className="p-3">
+                    <span className="text-[var(--text-secondary)] font-mono text-xs">{r.contacto ?? "-"}</span>
+                  </td>
                   <td className="p-3">
                     {r.url ? (
-                      <a className="text-blue-600 underline" href={r.url} target="_blank" rel="noreferrer">
+                      <a
+                        className="text-[var(--neon-cyan)] underline hover:text-[var(--cyan-bright)] transition-colors"
+                        href={r.url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
                         Abrir
                       </a>
                     ) : (
-                      "-"
+                      <span className="text-[var(--text-muted)]">-</span>
                     )}
                   </td>
                   <td className="p-3">
                     <button
-                      className="px-3 py-1.5 rounded-lg border hover:bg-gray-50"
+                      className="px-3 py-1.5 rounded-lg border border-[var(--error)] text-[var(--error)] hover:bg-[var(--error)] hover:text-[var(--dark-bg)] transition-all text-xs"
                       onClick={() => borrarSourceHandler(r.id)}
                     >
                       Borrar

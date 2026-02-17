@@ -75,3 +75,42 @@ export interface FxRate {
   brl_to_uyu: number;
   created_at: string;
 }
+
+/** Combos personalizados */
+export interface Combo {
+  id: string;
+  nombre: string;
+  descripcion: string | null;
+  precio: number;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Items que componen un combo */
+export interface ComboItem {
+  id: string;
+  combo_id: string;
+  product_id: string;
+  cantidad: number;
+  created_at: string;
+}
+
+/** Combo con sus productos incluidos */
+export interface ComboWithProducts extends Combo {
+  items: Array<{
+    product_id: string;
+    cantidad: number;
+    nombre: string;
+    precio: number;
+  }>;
+}
+
+/** Configuración de tasas de cambio */
+export interface ExchangeRateConfig {
+  id: string;
+  currency_from: string;
+  currency_to: string;
+  rate: number;
+  updated_at: string;
+}

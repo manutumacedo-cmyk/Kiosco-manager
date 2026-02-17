@@ -6,6 +6,11 @@ export interface CartItem {
   cantidad: number;
   precio_unitario: number;
   stock_actual: number;
+  categoria: string | null;
+  includeMonster?: boolean; // Para productos de categoría "Vasos"
+  shotExtra?: number; // Incremento de precio fijo (no afecta inventario)
+  isCombo?: boolean; // Indica si es un combo
+  combo_id?: string; // ID del combo si aplica
 }
 
 export interface ProductDraft {

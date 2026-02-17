@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabaseClient";
 import type { Sale } from "@/types";
+import { generatePostSaleInsights } from "./strategicInsights";
 
 /**
  * Crea una venta completa usando la función RPC atómica `create_sale_atomic`.
@@ -39,7 +40,20 @@ export async function createSale(params: {
     throw new Error(error.message);
   }
 
-  return data as string;
+  const saleId = data as string;
+
+  // 🔥 HOOK POST-VENTA: Motor de Inteligencia Estratégica
+  generatePostSaleInsights({
+    sale_id: saleId,
+    items: params.items,
+    total: params.total,
+    fecha: new Date(),
+  }).catch(err => {
+    console.error('[Post-Sale Hook] Error generando insights:', err);
+    // No lanzar error para no afectar la venta
+  });
+
+  return saleId;
 }
 
 /** Fallback no-atómico (para cuando la función RPC no está creada aún) */
@@ -87,6 +101,16 @@ async function createSaleFallback(params: {
 
     if (e3) throw new Error(e3.message);
   }
+
+  // 🔥 HOOK POST-VENTA: Motor de Inteligencia Estratégica
+  generatePostSaleInsights({
+    sale_id,
+    items: params.items,
+    total: params.total,
+    fecha: new Date(),
+  }).catch(err => {
+    console.error('[Post-Sale Hook] Error generando insights:', err);
+  });
 
   return sale_id;
 }
