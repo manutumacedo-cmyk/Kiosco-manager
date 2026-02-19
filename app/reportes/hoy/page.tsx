@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { Sale, SaleItemWithProduct, Product } from "@/types";
+import type { Sale, SaleItemWithProduct, Product, CierreCaja } from "@/types";
 import { fetchTodayReport, fetchWeeklyReport, fetchMonthlyReport, type SaleWithItems } from "@/lib/services/reports";
 import { useToast } from "@/components/ui/Toast";
+import { closeCashRegister, getCierreHoy } from "@/lib/services/cashRegister";
 
 type TabView = "diario" | "semanal" | "mensual" | "estrategico";
 
@@ -25,18 +26,25 @@ export default function DashboardPage() {
   const [weeklyData, setWeeklyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; products: Product[] }>({ sales: [], items: [], products: [] });
   const [monthlyData, setMonthlyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; products: Product[] }>({ sales: [], items: [], products: [] });
 
+  // Cierre de caja
+  const [showCierreModal, setShowCierreModal] = useState(false);
+  const [cierreHoy, setCierreHoy] = useState<CierreCaja | null>(null);
+  const [closingCaja, setClosingCaja] = useState(false);
+
   async function loadAllData() {
     setLoading(true);
     try {
-      const [today, week, month] = await Promise.all([
+      const [today, week, month, cierre] = await Promise.all([
         fetchTodayReport(),
         fetchWeeklyReport(),
         fetchMonthlyReport(),
+        getCierreHoy(),
       ]);
 
       setDailyData({ sales: today.sales, items: today.items, salesWithItems: today.salesWithItems });
       setWeeklyData({ sales: week.sales, items: week.items, products: week.products });
       setMonthlyData({ sales: month.sales, items: month.items, products: month.products });
+      setCierreHoy(cierre);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al cargar datos");
     } finally {
@@ -45,6 +53,30 @@ export default function DashboardPage() {
   }
 
   useEffect(() => { loadAllData(); }, []);
+
+  async function handleCloseCaja() {
+    if (cierreHoy) {
+      toast.warning("Ya se cerró la caja hoy");
+      return;
+    }
+
+    if (dailyData.sales.length === 0) {
+      toast.warning("No hay ventas registradas para cerrar la caja");
+      return;
+    }
+
+    setClosingCaja(true);
+    try {
+      const cierre = await closeCashRegister();
+      setCierreHoy(cierre);
+      setShowCierreModal(false);
+      toast.success("✅ Caja cerrada exitosamente");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al cerrar la caja");
+    } finally {
+      setClosingCaja(false);
+    }
+  }
 
   // ========== CÁLCULOS GENERALES ==========
   const calcularMetricas = (sales: Sale[], items: SaleItemWithProduct[]) => {
@@ -197,10 +229,26 @@ export default function DashboardPage() {
           <div className="h-10 w-10 rounded-full neon-border-cyan animate-pulse-cyan" />
           <h1 className="text-3xl font-bold neon-text-cyan">DASHBOARD ESTRATÉGICO</h1>
           <div className="text-2xl">📊</div>
+          {cierreHoy && (
+            <div className="px-4 py-2 rounded-lg bg-[var(--neon-cyan)] bg-opacity-20 border border-[var(--neon-cyan)] text-[var(--neon-cyan)] text-sm font-bold uppercase tracking-wide">
+              ✓ Caja Cerrada
+            </div>
+          )}
         </div>
-        <button onClick={loadAllData} className="cyber-button" disabled={loading}>
-          {loading ? "Cargando..." : "Refrescar"}
-        </button>
+        <div className="flex gap-3">
+          {!cierreHoy && dailyData.sales.length > 0 && (
+            <button
+              onClick={() => setShowCierreModal(true)}
+              className="cyber-button bg-[var(--magenta-glow)] hover:bg-[var(--magenta-glow)] text-[var(--neon-magenta)] border-[var(--neon-magenta)]"
+              disabled={loading}
+            >
+              💰 Cerrar Caja
+            </button>
+          )}
+          <button onClick={loadAllData} className="cyber-button" disabled={loading}>
+            {loading ? "Cargando..." : "Refrescar"}
+          </button>
+        </div>
       </div>
 
       {/* Tabs de navegación */}
@@ -566,6 +614,108 @@ export default function DashboardPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* Modal de Cierre de Caja */}
+      {showCierreModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
+          <div className="data-card neon-outline-magenta max-w-2xl w-full">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold neon-text-magenta">💰 Cierre de Caja</h2>
+              <button
+                onClick={() => setShowCierreModal(false)}
+                className="text-[var(--text-secondary)] hover:text-[var(--neon-cyan)] text-2xl"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Resumen de ventas */}
+              <div className="data-card bg-[var(--carbon-gray)] border border-[var(--slate-gray)]">
+                <div className="text-[var(--text-secondary)] text-sm uppercase tracking-wide mb-3">
+                  Resumen del día
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-[var(--text-muted)] text-xs">Total ventas</div>
+                    <div className="text-2xl font-bold neon-text-cyan">{dailyData.sales.length}</div>
+                  </div>
+                  <div>
+                    <div className="text-[var(--text-muted)] text-xs">Monto total</div>
+                    <div className="text-2xl font-bold neon-text-cyan">${metricasDiarias.totalIngresos.toFixed(2)}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Desglose por método de pago */}
+              <div className="data-card bg-[var(--carbon-gray)] border border-[var(--slate-gray)]">
+                <div className="text-[var(--text-secondary)] text-sm uppercase tracking-wide mb-3">
+                  Por método de pago
+                </div>
+                <div className="space-y-2">
+                  {["efectivo", "debito", "débito", "transferencia"].map(metodo => {
+                    const ventas = dailyData.sales.filter(s => s.metodo_pago?.toLowerCase() === metodo.toLowerCase());
+                    const total = ventas.reduce((acc, v) => acc + Number(v.total), 0);
+                    if (total === 0 && ventas.length === 0) return null;
+                    return (
+                      <div key={metodo} className="flex justify-between items-center">
+                        <span className="text-[var(--text-primary)] capitalize">{metodo}</span>
+                        <span className="font-mono text-[var(--neon-cyan)]">
+                          ${total.toFixed(2)} <span className="text-[var(--text-muted)] text-sm">({ventas.length})</span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {(() => {
+                    const ventasBRL = dailyData.sales.filter(s => s.moneda === "BRL");
+                    const totalBRL = ventasBRL.reduce((acc, v) => acc + Number(v.total), 0);
+                    if (totalBRL === 0) return null;
+                    return (
+                      <div className="flex justify-between items-center border-t border-[var(--slate-gray)] pt-2 mt-2">
+                        <span className="text-[var(--text-primary)]">BRL (Real)</span>
+                        <span className="font-mono text-[var(--neon-magenta)]">
+                          R$ {totalBRL.toFixed(2)} <span className="text-[var(--text-muted)] text-sm">({ventasBRL.length})</span>
+                        </span>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* Advertencia */}
+              <div className="p-4 border border-[var(--warning)] bg-[var(--warning)] bg-opacity-10 rounded-lg">
+                <div className="flex gap-3">
+                  <span className="text-2xl">⚠️</span>
+                  <div>
+                    <div className="font-bold text-[var(--warning)] mb-1">Advertencia</div>
+                    <div className="text-sm text-[var(--text-secondary)]">
+                      Una vez cerrada la caja, no podrás cerrarla nuevamente hoy. Verificá que todos los datos sean correctos.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Botones */}
+              <div className="flex gap-3 justify-end pt-4">
+                <button
+                  onClick={() => setShowCierreModal(false)}
+                  className="px-6 py-3 rounded-lg border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)] transition-all"
+                  disabled={closingCaja}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleCloseCaja}
+                  className="cyber-button bg-[var(--magenta-glow)] text-[var(--neon-magenta)] border-[var(--neon-magenta)]"
+                  disabled={closingCaja}
+                >
+                  {closingCaja ? "Cerrando..." : "✓ Confirmar Cierre"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

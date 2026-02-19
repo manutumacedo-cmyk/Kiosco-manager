@@ -51,6 +51,7 @@ export interface Sale {
   total: number;
   nota: string | null;
   moneda: string;
+  estado: string; // 'activa' | 'anulada'
   created_at: string;
 }
 
@@ -68,6 +69,20 @@ export interface SaleItemWithProduct {
   cantidad: number;
   precio_unitario: number;
   products: { nombre: string; costo: number } | { nombre: string; costo: number }[] | null;
+}
+
+/** Cierre de caja con totales por método de pago */
+export interface CierreCaja {
+  id: string;
+  fecha_cierre: string;
+  total_efectivo: number;
+  total_debito: number;
+  total_transferencia: number;
+  total_brl: number;
+  cantidad_ventas: number;
+  monto_total: number;
+  notas: string | null;
+  created_at: string;
 }
 
 export interface FxRate {
