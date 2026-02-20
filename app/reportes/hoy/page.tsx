@@ -6,7 +6,7 @@ import { fetchTodayReport, fetchWeeklyReport, fetchMonthlyReport, type SaleWithI
 import { useToast } from "@/components/ui/Toast";
 import { closeCashRegister, getCierreHoy } from "@/lib/services/cashRegister";
 
-type TabView = "diario" | "semanal" | "mensual" | "estrategico";
+type TabView = "diario" | "semanal" | "mensual" | "estrategico" | "margen";
 
 interface ProductAnalysis {
   nombre: string;
@@ -257,6 +257,7 @@ export default function DashboardPage() {
           { id: "diario" as TabView, label: "Diario", icon: "☀️" },
           { id: "semanal" as TabView, label: "Semanal", icon: "📅" },
           { id: "mensual" as TabView, label: "Mensual", icon: "📆" },
+          { id: "margen" as TabView, label: "Margen", icon: "💰" },
           { id: "estrategico" as TabView, label: "Info Estratégica", icon: "🎯" },
         ].map(tab => (
           <button
@@ -609,6 +610,190 @@ export default function DashboardPage() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: MARGEN */}
+          {activeTab === "margen" && (
+            <div className="space-y-6">
+              {/* Resumen general de margen */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="data-card neon-outline-cyan">
+                  <div className="text-[var(--text-muted)] text-xs uppercase">Margen Promedio</div>
+                  <div className="text-3xl font-bold mt-2 neon-text-cyan">
+                    {metricasMensuales.margenPorcentaje.toFixed(1)}%
+                  </div>
+                  <div className="text-xs text-[var(--text-secondary)] mt-2">
+                    {metricasMensuales.margenPorcentaje > 40 ? '✅ Excelente' : metricasMensuales.margenPorcentaje > 25 ? '⚠️ Bueno' : '❌ Bajo'}
+                  </div>
+                </div>
+                <div className="data-card neon-outline-cyan">
+                  <div className="text-[var(--text-muted)] text-xs uppercase">Ganancia Total (mes)</div>
+                  <div className="text-3xl font-bold mt-2 neon-text-cyan">
+                    ${metricasMensuales.gananciaLimpia.toFixed(2)}
+                  </div>
+                  <div className="text-xs text-[var(--text-secondary)] mt-2">
+                    Ingresos: ${metricasMensuales.totalIngresos.toFixed(2)}
+                  </div>
+                </div>
+                <div className="data-card neon-outline-cyan">
+                  <div className="text-[var(--text-muted)] text-xs uppercase">Costos Totales</div>
+                  <div className="text-3xl font-bold mt-2 text-[var(--warning)]">
+                    ${metricasMensuales.totalCostos.toFixed(2)}
+                  </div>
+                  <div className="text-xs text-[var(--text-secondary)] mt-2">
+                    {((metricasMensuales.totalCostos / metricasMensuales.totalIngresos) * 100).toFixed(1)}% de ingresos
+                  </div>
+                </div>
+              </div>
+
+              {/* Tabla completa de análisis de margen por producto */}
+              <div className="data-card neon-outline-magenta">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="text-[var(--neon-magenta)] font-bold text-xl uppercase tracking-wide">
+                    💰 Análisis de Margen por Producto (Último Mes)
+                  </div>
+                  <div className="text-sm text-[var(--text-secondary)]">
+                    {productosMes.length} productos
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-[var(--carbon-gray)] border-b-2 border-[var(--neon-magenta)]">
+                      <tr>
+                        <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">#</th>
+                        <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Producto</th>
+                        <th className="p-3 text-right text-[var(--text-secondary)] uppercase text-xs tracking-wide">Vendido</th>
+                        <th className="p-3 text-right text-[var(--text-secondary)] uppercase text-xs tracking-wide">Ingresos</th>
+                        <th className="p-3 text-right text-[var(--text-secondary)] uppercase text-xs tracking-wide">Ganancia</th>
+                        <th className="p-3 text-right text-[var(--text-secondary)] uppercase text-xs tracking-wide">Margen %</th>
+                        <th className="p-3 text-center text-[var(--text-secondary)] uppercase text-xs tracking-wide">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {productosMes
+                        .sort((a, b) => b.gananciaTotal - a.gananciaTotal)
+                        .map((p, i) => {
+                          const margenColor = p.margenPorcentaje > 40
+                            ? 'var(--success)'
+                            : p.margenPorcentaje > 20
+                            ? 'var(--warning)'
+                            : 'var(--error)';
+                          const margenIcon = p.margenPorcentaje > 40
+                            ? '🟢'
+                            : p.margenPorcentaje > 20
+                            ? '🟡'
+                            : '🔴';
+
+                          return (
+                            <tr
+                              key={i}
+                              className="border-t border-[var(--slate-gray)] hover:bg-[var(--carbon-gray)] transition-colors"
+                            >
+                              <td className="p-3 text-[var(--text-muted)] font-mono">{i + 1}</td>
+                              <td className="p-3 text-[var(--text-primary)] font-medium">{p.nombre}</td>
+                              <td className="p-3 text-right font-mono text-[var(--neon-cyan)]">{p.cantidad}</td>
+                              <td className="p-3 text-right font-mono text-[var(--neon-cyan)]">
+                                ${p.ingresoTotal.toFixed(2)}
+                              </td>
+                              <td className="p-3 text-right font-mono text-[var(--neon-magenta)] font-bold">
+                                ${p.gananciaTotal.toFixed(2)}
+                              </td>
+                              <td
+                                className="p-3 text-right font-mono font-bold text-lg"
+                                style={{ color: margenColor }}
+                              >
+                                {p.margenPorcentaje.toFixed(1)}%
+                              </td>
+                              <td className="p-3 text-center text-xl">
+                                {margenIcon}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                    <tfoot className="bg-[var(--carbon-gray)] border-t-2 border-[var(--neon-magenta)]">
+                      <tr>
+                        <td colSpan={3} className="p-3 text-[var(--text-primary)] font-bold uppercase">
+                          Total General
+                        </td>
+                        <td className="p-3 text-right font-mono font-bold text-[var(--neon-cyan)]">
+                          ${metricasMensuales.totalIngresos.toFixed(2)}
+                        </td>
+                        <td className="p-3 text-right font-mono font-bold text-[var(--neon-magenta)]">
+                          ${metricasMensuales.gananciaLimpia.toFixed(2)}
+                        </td>
+                        <td className="p-3 text-right font-mono font-bold text-lg neon-text-cyan">
+                          {metricasMensuales.margenPorcentaje.toFixed(1)}%
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                {productosMes.length === 0 && (
+                  <div className="text-center py-12">
+                    <div className="text-4xl mb-4">📊</div>
+                    <div className="text-[var(--text-secondary)]">
+                      No hay datos de productos en el último mes
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Recomendaciones basadas en margen */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Top 5 más rentables */}
+                <div className="data-card neon-outline-cyan">
+                  <div className="text-[var(--neon-cyan)] font-bold text-lg uppercase tracking-wide mb-4">
+                    🏆 Top 5 Más Rentables
+                  </div>
+                  <div className="space-y-3">
+                    {masRentables.map((p, i) => (
+                      <div key={i} className="border-b border-[var(--slate-gray)] pb-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[var(--text-primary)]">
+                            {i + 1}. {p.nombre}
+                          </span>
+                          <span className="font-mono text-sm text-[var(--success)] font-bold">
+                            ${p.gananciaTotal.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="text-xs text-[var(--text-muted)] mt-1">
+                          Margen: {p.margenPorcentaje.toFixed(1)}% • Vendido: {p.cantidad}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Items con margen bajo que requieren atención */}
+                <div className="data-card neon-outline-red">
+                  <div className="text-[var(--error)] font-bold text-lg uppercase tracking-wide mb-4">
+                    ⚠️ Productos a Revisar (Margen Bajo)
+                  </div>
+                  <div className="space-y-3">
+                    {menosRentables.map((p, i) => (
+                      <div key={i} className="border-b border-[var(--slate-gray)] pb-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[var(--text-primary)]">{p.nombre}</span>
+                          <span className="font-mono text-sm text-[var(--error)] font-bold">
+                            {p.margenPorcentaje.toFixed(1)}%
+                          </span>
+                        </div>
+                        <div className="text-xs text-[var(--text-muted)] mt-1">
+                          Ganancia: ${p.gananciaTotal.toFixed(2)} • Vendido: {p.cantidad}
+                        </div>
+                        <div className="text-xs text-[var(--warning)] mt-1">
+                          {p.margenPorcentaje < 15 ? '🔴 Crítico: Considerá aumentar precio o cambiar proveedor' : '🟡 Revisar costos'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
