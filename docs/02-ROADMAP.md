@@ -51,20 +51,21 @@
   primero la UI nueva, la sesión de caja se monta una sola vez sobre la pantalla ya rediseñada.
 -->
 
-## FASE 2 · Velocidad en hora pico ⚡
+## FASE 2 · Velocidad en hora pico ⚡ — ✅ COMPLETADA
 *Objetivo: cobrar lo más rápido posible con teclado. Sacar lo que estorba.*
 
-- [ ] **2.1** **Atajos de teclado** en el POS (M1):
-      foco automático en búsqueda · `Enter` agrega el primer resultado · teclas para método de pago ·
-      atajo para **cobrar** · `Esc` para limpiar. Documentar los atajos en pantalla.
-- [ ] **2.2** Soporte de **lector de código de barras** (M2):
-      campo `codigo` en `products` · la búsqueda matchea por código exacto y agrega directo al carrito.
+- [x] **2.1** **Atajos de teclado** en el POS (M1): ✅
+      F1–F5 cambian tab · Enter abre modal de cobro · Ctrl+Enter confirma venta ·
+      / enfoca búsqueda · Esc cierra modal o limpia búsqueda · Ctrl+Supr limpia carrito.
+- [ ] **2.2** Soporte de **lector de código de barras** (M2): ⏸ diferido
+      > No urgente para este local — sin hardware de lector.
+      > Implementar si el cliente lo solicita en el futuro.
 - [x] **2.3** **Sacar los insights del camino de venta** (B4/M6): ✅
       que NO corra tras cada venta. Moverlo a cálculo on-demand (al abrir el dashboard) o a una
       vista/consulta SQL agregada. Eliminar el patrón N+1.
 
-**Criterio de salida:** una venta típica (buscar → agregar → cobrar) se hace **sin tocar el mouse**
-y sin esperas perceptibles.
+**Criterio de salida:** ✅ ALCANZADO. La grilla de botones + atajos de teclado permiten completar
+una venta sin tocar el mouse. El camino de venta ya no dispara queries extras por insights.
 
 ---
 
