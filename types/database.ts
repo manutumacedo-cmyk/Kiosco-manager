@@ -44,6 +44,23 @@ export interface RestockPurchase {
   created_at: string;
 }
 
+export interface CashSession {
+  id: string;
+  cajero: string;
+  apertura_at: string;
+  monto_inicial: number;
+  estado: 'abierta' | 'cerrada';
+  cerrado_por: string | null;
+  cierre_at: string | null;
+  notas_cierre: string | null;
+  total_ventas: number | null;
+  total_efectivo_uyu: number | null;
+  total_efectivo_brl: number | null; // BRL neto: Σ(pagado BRL) − Σ(vuelto BRL)
+  total_digital: number | null;
+  cantidad_ventas: number | null;
+  created_at: string;
+}
+
 export interface Sale {
   id: string;
   fecha: string;
@@ -53,7 +70,9 @@ export interface Sale {
   moneda: string;
   pagado: number | null;
   vuelto: number | null;
+  vuelto_moneda: 'UYU' | 'BRL' | null; // NULL = UYU (default); 'BRL' cuando el vuelto se dio en reales
   estado: string; // 'activa' | 'anulada'
+  session_id: string | null;
   created_at: string;
 }
 

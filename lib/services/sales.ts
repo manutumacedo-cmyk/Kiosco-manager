@@ -294,7 +294,9 @@ export async function fetchSalesByDateRange(
     moneda: sale.moneda,
     pagado: sale.pagado ?? null,
     vuelto: sale.vuelto ?? null,
+    vuelto_moneda: sale.vuelto_moneda ?? null,
     estado: sale.estado || "activa",
+    session_id: sale.session_id ?? null,
     created_at: sale.created_at,
     items: sale.sale_items?.map((item: any) => ({
       product_id: item.product_id,

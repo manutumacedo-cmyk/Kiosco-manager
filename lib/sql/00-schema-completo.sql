@@ -32,18 +32,41 @@ CREATE TABLE IF NOT EXISTS products (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ---- cash_sessions (sesiones de caja por turno) -------------------------
+-- Un turno puede cruzar la medianoche. apertura/cierre son manuales.
+CREATE TABLE IF NOT EXISTS cash_sessions (
+  id                  UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  cajero              TEXT          NOT NULL,
+  apertura_at         TIMESTAMPTZ   NOT NULL DEFAULT now(),
+  monto_inicial       NUMERIC(10,2) NOT NULL DEFAULT 0,   -- fondo inicial, en UYU
+  estado              TEXT          NOT NULL DEFAULT 'abierta'
+                                    CHECK (estado IN ('abierta', 'cerrada')),
+  cerrado_por         TEXT,                   -- quién cierra (puede diferir del cajero)
+  cierre_at           TIMESTAMPTZ,
+  notas_cierre        TEXT,
+  -- Snapshot de totales al cierre (NULL mientras está abierta)
+  total_ventas        NUMERIC(10,2),
+  total_efectivo_uyu  NUMERIC(10,2),
+  total_efectivo_brl  NUMERIC(10,2),  -- BRL neto: Σ(pagado BRL) − Σ(vuelto BRL)
+  total_digital       NUMERIC(10,2),
+  cantidad_ventas     INTEGER,
+  created_at          TIMESTAMPTZ   NOT NULL DEFAULT now()
+);
+
 -- ---- sales (cabecera de venta) ------------------------------------------
 CREATE TABLE IF NOT EXISTS sales (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  fecha       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  metodo_pago TEXT NOT NULL,
-  total       NUMERIC(10,2) NOT NULL DEFAULT 0,
-  nota        TEXT,
-  moneda      TEXT NOT NULL DEFAULT 'UYU',   -- 'UYU' | 'BRL' (moneda en que pagó el cliente)
-  pagado      NUMERIC(10,2),                 -- monto entregado, EN LA MONEDA de moneda (nullable: sin calculadora)
-  vuelto      NUMERIC(10,2),                 -- vuelto entregado, EN UYU (nullable)
-  estado      TEXT NOT NULL DEFAULT 'activa', -- 'activa' | 'anulada'
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  fecha         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  metodo_pago   TEXT NOT NULL,
+  total         NUMERIC(10,2) NOT NULL DEFAULT 0,
+  nota          TEXT,
+  moneda        TEXT NOT NULL DEFAULT 'UYU',  -- 'UYU' | 'BRL' (moneda en que pagó el cliente)
+  pagado        NUMERIC(10,2),                -- monto entregado, EN LA MONEDA de moneda (nullable)
+  vuelto        NUMERIC(10,2),                -- vuelto entregado, en la moneda de vuelto_moneda (nullable)
+  vuelto_moneda TEXT CHECK (vuelto_moneda IN ('UYU', 'BRL')),  -- NULL = UYU (default)
+  estado        TEXT NOT NULL DEFAULT 'activa',  -- 'activa' | 'anulada'
+  session_id    UUID REFERENCES cash_sessions(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- ---- sale_items (detalle de venta) --------------------------------------
@@ -162,8 +185,10 @@ CREATE TABLE IF NOT EXISTS strategic_insights (
 -- ============================== ÍNDICES ==================================
 CREATE INDEX IF NOT EXISTS idx_products_activo            ON products(activo);
 CREATE INDEX IF NOT EXISTS idx_products_categoria         ON products(categoria);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_one_open_session    ON cash_sessions (estado) WHERE estado = 'abierta';
 CREATE INDEX IF NOT EXISTS idx_sales_fecha                ON sales(fecha DESC);
 CREATE INDEX IF NOT EXISTS idx_sales_estado               ON sales(estado);
+CREATE INDEX IF NOT EXISTS idx_sales_session_id           ON sales(session_id);
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id         ON sale_items(sale_id);
 CREATE INDEX IF NOT EXISTS idx_sale_items_product_id      ON sale_items(product_id);
 CREATE INDEX IF NOT EXISTS idx_sale_combos_sale_id        ON sale_combos(sale_id);
@@ -316,7 +341,55 @@ BEGIN
 END;
 $$;
 
--- 5) Trigger para mantener combos.updated_at
+-- 5) Cerrar sesión de caja y grabar snapshot de totales (atómico)
+CREATE OR REPLACE FUNCTION close_cash_session(
+  p_session_id  UUID,
+  p_cerrado_por TEXT,
+  p_notas       TEXT DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_total_ventas     NUMERIC;
+  v_efectivo_uyu     NUMERIC;
+  v_efectivo_brl     NUMERIC;
+  v_digital          NUMERIC;
+  v_cantidad         INTEGER;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM cash_sessions WHERE id = p_session_id AND estado = 'abierta'
+  ) THEN
+    RAISE EXCEPTION 'Sesión no encontrada o ya cerrada';
+  END IF;
+
+  SELECT
+    COALESCE(SUM(total), 0),
+    COALESCE(SUM(CASE WHEN metodo_pago = 'efectivo' AND moneda = 'UYU' THEN total ELSE 0 END), 0),
+    -- BRL neto: reales recibidos menos reales devueltos como vuelto
+    COALESCE(SUM(CASE WHEN metodo_pago = 'efectivo' AND moneda = 'BRL' THEN pagado ELSE 0 END), 0)
+    - COALESCE(SUM(CASE WHEN vuelto_moneda = 'BRL' THEN vuelto ELSE 0 END), 0),
+    COALESCE(SUM(CASE WHEN metodo_pago != 'efectivo' THEN total ELSE 0 END), 0),
+    COUNT(*)
+  INTO v_total_ventas, v_efectivo_uyu, v_efectivo_brl, v_digital, v_cantidad
+  FROM sales
+  WHERE session_id = p_session_id AND estado = 'activa';
+
+  UPDATE cash_sessions SET
+    estado             = 'cerrada',
+    cerrado_por        = p_cerrado_por,
+    cierre_at          = now(),
+    notas_cierre       = p_notas,
+    total_ventas       = v_total_ventas,
+    total_efectivo_uyu = v_efectivo_uyu,
+    total_efectivo_brl = v_efectivo_brl,
+    total_digital      = v_digital,
+    cantidad_ventas    = v_cantidad
+  WHERE id = p_session_id;
+END;
+$$;
+
+-- 6) Trigger para mantener combos.updated_at
 CREATE OR REPLACE FUNCTION update_combo_timestamp()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -356,6 +429,7 @@ LEFT JOIN products p     ON ci.product_id = p.id
 GROUP BY c.id, c.nombre, c.descripcion, c.precio, c.activo, c.created_at;
 
 -- ================== RLS (TEMPORAL — público, ver B5) =====================
+ALTER TABLE cash_sessions        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE products             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sales                ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sale_items           ENABLE ROW LEVEL SECURITY;
@@ -372,7 +446,7 @@ DO $$
 DECLARE t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
-    'products','sales','sale_items','sale_combos','restock_sources','restock_purchases',
+    'cash_sessions','products','sales','sale_items','sale_combos','restock_sources','restock_purchases',
     'combos','combo_items','exchange_rate_config','cierres_caja','strategic_insights'
   ] LOOP
     EXECUTE format('DROP POLICY IF EXISTS "acceso_publico_%1$s" ON %1$s;', t);
