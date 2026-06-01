@@ -159,16 +159,16 @@
 
 | ID | Mejora | Prioridad de negocio | Cerrado en |
 |---|---|---|---|
-| **M1** | **Atajos de teclado** en el POS (buscar, agregar, elegir método, cobrar) | ⚡ Rápido | — |
-| **M2** | **Lector de código de barras** (USB = teclado): campo `codigo` en productos + match en búsqueda | ⚡ Rápido | — |
-| **M3** | **Sesión de caja** (apertura/cierre con cajero y monto inicial) | 💵 Cuadre + 👥 Turnos | — |
-| **M4** | **Registrar cajero por venta** (saber quién vendió qué) | 👥 Turnos | — |
+| **M1** | **Atajos de teclado** en el POS (buscar, agregar, elegir método, cobrar) | ⚡ Rápido | Fase 2.1 |
+| **M2** | **Lector de código de barras** (USB = teclado): campo `codigo` en productos + match en búsqueda | ⚡ Rápido | ⏸ diferido |
+| **M3** | **Sesión de caja** (apertura/cierre con cajero y monto inicial) | 💵 Cuadre + 👥 Turnos | Fase 3.1/3.2 |
+| **M4** | **Registrar cajero por venta** (saber quién vendió qué) | 👥 Turnos | Fase 3.3 |
 | **M5** | **PWA + cola offline** (guardar ventas localmente y sincronizar) | 🛡️ Prevención | — |
 | **M6** | **Mover los insights** fuera del camino de venta (on-demand o vista SQL) | ⚡ Rápido | Fase 2.3 |
 | **M7** | **Activar RLS** en Supabase | 🔒 Seguridad | — |
 | **M8** | Guardar **moneda + pagado + vuelto** en cada venta | 💵 Cuadre | Fase 1.2 |
 | **M9** | **Impresión de ticket / comanda** (opcional, según necesidad) | 🧾 Extra | — |
-| **M10** | **Rediseño UI del POS** — grid de botones por categoría, panel de cobro colapsable en modal, atajos visibles en pantalla. Elimina la búsqueda como flujo principal. | ⚡ Rápido | — |
+| **M10** | **Rediseño UI del POS** — grid de botones por categoría, panel de cobro colapsable en modal, atajos visibles en pantalla. Elimina la búsqueda como flujo principal. | ⚡ Rápido | Fase 3.0 |
 
 ---
 

@@ -69,7 +69,7 @@ una venta sin tocar el mouse. El camino de venta ya no dispara queries extras po
 
 ---
 
-## FASE 3 · Turno / Sesión de caja 🔴 — [~] EN PROGRESO
+## FASE 3 · Turno / Sesión de caja 🔴 — [~] EN PROGRESO (solo falta 3.4)
 *Objetivo: operar por turnos reales con apertura/cierre manual, aunque crucen la medianoche.*
 
 - [x] **3.0** **Rediseñar pantalla de ventas**: grid de botones por categoría, panel derecho como
@@ -84,19 +84,23 @@ una venta sin tocar el mouse. El camino de venta ya no dispara queries extras po
       Nav en `CyberNav` con dot verde cuando hay sesión abierta. Card en menú principal.
       Cierre de caja legacy eliminado del dashboard (refactor commit `ba9513e`).
 - [x] **3.3** Asociar cada **venta a la sesión abierta** (M4). ✅
-      → `session_id` en `sales` · `create_sale_atomic` acepta `p_session_id` · POS llama
-      `getOpenSession()` al cargar y pasa `session_id` en cada venta.
+      → `session_id` en `sales` · `create_sale_atomic` acepta `p_session_id` y `p_vuelto_moneda` ·
+      POS llama `getOpenSession()` al cargar y pasa `session_id` en cada venta.
+      Al cobrar en BRL con vuelto en efectivo, el cajero elige si da el vuelto en pesos o reales.
 - [ ] **3.4** Reescribir reportes y cierre para trabajar **por sesión**, no por día calendario (B1).
       → Reemplaza la lógica de `setHours(0,0,0,0)` de [`cashRegister.ts`](../lib/services/cashRegister.ts).
-- [ ] **3.5** Bloquear cobrar si **no hay caja abierta** (guía al cajero a abrirla primero).
+- [x] **3.5** Bloquear cobrar si **no hay caja abierta** (guía al cajero a abrirla primero). ✅
+      → Early return en [`app/ventas/nueva/page.tsx`](../app/ventas/nueva/page.tsx) con pantalla
+      de bloqueo y botón "Ir a Caja →". `sessionChecked` evita flash durante la carga inicial.
 
 > **Extra resuelto en esta fase:**
-> - `vuelto_moneda` en POS: al cobrar en BRL con vuelto, el cajero elige entre
->   "Di el vuelto en PESOS" o "Di el vuelto en REALES" (solo efectivo). Se guarda en DB.
-> - **B16 resuelto** (commit `b0dadc6`): ventas anuladas excluidas de todos los reportes.
+> - **B16 resuelto** (commit `b0dadc6`): ventas anuladas excluidas de todos los reportes
+>   (diario, semanal, mensual) via `.eq("estado","activa")` + join `!inner` en `sale_items`/`sale_combos`.
+> - **B17 registrado** (menor, sin fix urgente): dashboard no refresca automáticamente tras anular.
 
 **Criterio de salida:** abro caja a las 22:00, vendo, cierro a las 04:00 del día siguiente, y el cierre
 muestra **un solo turno** con todos los totales correctos y quién lo atendió.
+⚠️ Pendiente: **3.4** — los reportes del dashboard aún usan día calendario, no sesión.
 
 ---
 
