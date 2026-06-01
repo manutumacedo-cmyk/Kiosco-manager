@@ -87,6 +87,21 @@ export async function openCashSession(
 }
 
 /**
+ * Devuelve las últimas `limit` sesiones cerradas, ordenadas por cierre DESC.
+ */
+export async function getClosedSessions(limit = 10): Promise<CashSession[]> {
+  const { data, error } = await supabase
+    .from("cash_sessions")
+    .select("*")
+    .eq("estado", "cerrada")
+    .order("cierre_at", { ascending: false })
+    .limit(limit);
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as CashSession[];
+}
+
+/**
  * Cierra la sesión y graba el snapshot de totales via RPC atómica.
  */
 export async function closeCashSession(

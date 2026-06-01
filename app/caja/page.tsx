@@ -6,6 +6,7 @@ import {
   getSessionTotals,
   openCashSession,
   closeCashSession,
+  getClosedSessions,
   type SessionTotals,
 } from "@/lib/services/cashSessions";
 import type { CashSession } from "@/types";
@@ -42,6 +43,7 @@ export default function CajaPage() {
   const [cerradoPor, setCerradoPor] = useState("");
   const [notas, setNotas] = useState("");
   const [closing, setClosing] = useState(false);
+  const [closedSessions, setClosedSessions] = useState<CashSession[]>([]);
 
   const loadSession = useCallback(async () => {
     try {
@@ -54,6 +56,8 @@ export default function CajaPage() {
       } else {
         setPageState("cerrada");
       }
+      const history = await getClosedSessions(10);
+      setClosedSessions(history);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar sesión");
       setPageState("cerrada");
@@ -111,6 +115,8 @@ export default function CajaPage() {
       setCerradoPor("");
       setNotas("");
       setPageState("cerrada");
+      const history = await getClosedSessions(10);
+      setClosedSessions(history);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cerrar caja");
     } finally {
@@ -395,6 +401,65 @@ export default function CajaPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ──────── HISTORIAL DE TURNOS ──────── */}
+      {closedSessions.length > 0 && (
+        <div className="border-t border-[var(--slate-gray)] pt-6 space-y-3">
+          <h2 className="text-sm uppercase tracking-wide text-[var(--text-secondary)] font-semibold">
+            Historial de turnos
+          </h2>
+          <div className="space-y-3">
+            {closedSessions.map((s) => (
+              <div
+                key={s.id}
+                className="data-card bg-[var(--carbon-gray)] border border-[var(--slate-gray)] rounded-xl p-4 text-sm"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  {/* Cajero / cerrado por + fechas + notas */}
+                  <div className="min-w-0">
+                    <p className="font-semibold text-[var(--text-primary)] truncate">
+                      {s.cajero}
+                      {s.cerrado_por && s.cerrado_por !== s.cajero && (
+                        <span className="text-[var(--text-secondary)] font-normal">
+                          {" "}→ {s.cerrado_por}
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-[var(--text-secondary)] text-xs mt-0.5">
+                      {fmtDate(s.apertura_at)} → {s.cierre_at ? fmtDate(s.cierre_at) : "—"}
+                    </p>
+                    {s.notas_cierre && (
+                      <p className="text-[var(--text-secondary)] text-xs mt-1 italic truncate">
+                        {s.notas_cierre}
+                      </p>
+                    )}
+                  </div>
+                  {/* Totales */}
+                  <div className="text-right shrink-0 space-y-0.5">
+                    <p className="font-bold neon-text-cyan">$ {fmt(s.total_ventas ?? 0)}</p>
+                    <p className="text-[var(--text-secondary)] text-xs">
+                      $ {fmt(s.total_efectivo_uyu ?? 0)} UYU
+                    </p>
+                    {(s.total_efectivo_brl ?? 0) > 0 && (
+                      <p className="text-[var(--text-secondary)] text-xs">
+                        R$ {fmt(s.total_efectivo_brl ?? 0)} BRL
+                      </p>
+                    )}
+                    {(s.total_digital ?? 0) > 0 && (
+                      <p className="text-[var(--text-secondary)] text-xs">
+                        $ {fmt(s.total_digital ?? 0)} dig
+                      </p>
+                    )}
+                    <p className="text-[var(--text-secondary)] text-xs">
+                      {s.cantidad_ventas ?? 0} ventas
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
