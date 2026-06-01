@@ -104,6 +104,18 @@
 
 ## 🟡 MENORES / HIGIENE
 
+### B15 · Costos en reportes históricos usan precio live, no el del momento de la venta 🟡
+- **Dónde:** [`lib/services/reports.ts`](../lib/services/reports.ts) · `calcularMetricas` en
+  [`app/reportes/hoy/page.tsx`](../app/reportes/hoy/page.tsx#L83).
+- **Qué pasa:** `totalCostos` se calcula sumando `products.costo` (valor actual de la tabla)
+  en lugar del costo registrado al momento de la venta. Si el costo de un producto o componente
+  de combo cambia, los reportes de períodos anteriores muestran la ganancia con costos nuevos.
+- **Impacto:** Bajo hoy (costos estables). Podría distorsionar análisis histórico si se ajustan
+  precios de compra. Aplica igual a productos individuales y a combos.
+- **Fix futuro:** guardar `costo_unitario` por ítem en `sale_items` al momento de la venta
+  (similar a como `sale_combos` ya guarda `costo_unitario`). No urgente hasta que haya historial
+  con cambios de costos relevantes.
+
 ### B13 · El repo está duplicado 🟡 — ✅ RESUELTO (Fase 0)
 - **Dónde:** existía `Kiosco-manager-main/` dentro del repo.
 - **Hallazgo:** NO era una copia idéntica — era una versión **más nueva** (combos en reportes) que el
