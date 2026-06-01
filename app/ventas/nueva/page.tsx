@@ -229,9 +229,17 @@ export default function NuevaVentaPage() {
         stock_actual: number;
       }> = [];
 
+      const combosVendidos: Array<{
+        combo_id: string;
+        combo_nombre: string;
+        cantidad: number;
+        precio_unitario: number;
+        costo_unitario: number;
+      }> = [];
+
       for (const it of cart) {
         if (it.isCombo) {
-          // Es un combo: descontar inventario de cada producto
+          // Es un combo: descontar inventario de cada producto componente
           const combo = combos.find((c) => c.id === it.combo_id);
           if (!combo) continue;
 
@@ -247,12 +255,18 @@ export default function NuevaVentaPage() {
             });
           }
 
-          // Agregar el combo como item de venta (para el registro)
-          saleItems.push({
-            product_id: it.product_id,
+          // Calcular costo unitario del combo
+          const costoUnitario = combo.items.reduce((acc, ci) => {
+            const product = products.find((p) => p.id === ci.product_id);
+            return acc + (product?.costo ?? 0) * ci.cantidad;
+          }, 0);
+
+          combosVendidos.push({
+            combo_id: combo.id,
+            combo_nombre: combo.nombre,
             cantidad: it.cantidad,
             precio_unitario: it.precio_unitario + (it.shotExtra || 0),
-            stock_actual: 0, // No descuenta stock del combo en sí
+            costo_unitario: costoUnitario,
           });
         } else {
           // Producto normal
@@ -292,6 +306,7 @@ export default function NuevaVentaPage() {
         total,
         nota: nota.trim() ? nota.trim() : null,
         items: saleItems,
+        combos: combosVendidos.length > 0 ? combosVendidos : undefined,
       });
 
       toast.success("Venta guardada");
