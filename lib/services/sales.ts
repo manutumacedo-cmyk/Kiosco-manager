@@ -19,6 +19,13 @@ export async function createSale(params: {
     precio_unitario: number;
     stock_actual: number;
   }>;
+  combos?: Array<{
+    combo_id: string;
+    combo_nombre: string;
+    cantidad: number;
+    precio_unitario: number;
+    costo_unitario: number;
+  }>;
 }): Promise<string> {
   // Intentar vía RPC atómica
   const { data, error } = await supabase.rpc("create_sale_atomic", {
@@ -41,6 +48,20 @@ export async function createSale(params: {
   }
 
   const saleId = data as string;
+
+  // Guardar combos vendidos en sale_combos (para reportes)
+  if (params.combos && params.combos.length > 0) {
+    await supabase.from("sale_combos").insert(
+      params.combos.map((c) => ({
+        sale_id: saleId,
+        combo_id: c.combo_id,
+        combo_nombre: c.combo_nombre,
+        cantidad: c.cantidad,
+        precio_unitario: c.precio_unitario,
+        costo_unitario: c.costo_unitario,
+      }))
+    );
+  }
 
   // 🔥 HOOK POST-VENTA: Motor de Inteligencia Estratégica
   generatePostSaleInsights({
@@ -66,6 +87,13 @@ async function createSaleFallback(params: {
     cantidad: number;
     precio_unitario: number;
     stock_actual: number;
+  }>;
+  combos?: Array<{
+    combo_id: string;
+    combo_nombre: string;
+    cantidad: number;
+    precio_unitario: number;
+    costo_unitario: number;
   }>;
 }): Promise<string> {
   const { data: sale, error: e1 } = await supabase
@@ -100,6 +128,20 @@ async function createSaleFallback(params: {
       .eq("id", it.product_id);
 
     if (e3) throw new Error(e3.message);
+  }
+
+  // Guardar combos vendidos en sale_combos (para reportes)
+  if (params.combos && params.combos.length > 0) {
+    await supabase.from("sale_combos").insert(
+      params.combos.map((c) => ({
+        sale_id,
+        combo_id: c.combo_id,
+        combo_nombre: c.combo_nombre,
+        cantidad: c.cantidad,
+        precio_unitario: c.precio_unitario,
+        costo_unitario: c.costo_unitario,
+      }))
+    );
   }
 
   // 🔥 HOOK POST-VENTA: Motor de Inteligencia Estratégica
