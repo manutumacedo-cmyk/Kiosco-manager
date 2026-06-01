@@ -264,7 +264,8 @@ CREATE OR REPLACE FUNCTION create_sale_atomic(
   p_items       jsonb,                       -- array de {product_id, cantidad, precio_unitario}
   p_moneda      text    DEFAULT 'UYU',       -- moneda en que pagó el cliente: 'UYU' | 'BRL'
   p_pagado      numeric DEFAULT NULL,        -- monto entregado, EN LA MONEDA p_moneda
-  p_vuelto      numeric DEFAULT NULL         -- vuelto entregado, EN UYU
+  p_vuelto      numeric DEFAULT NULL,        -- vuelto entregado, EN UYU
+  p_session_id  uuid    DEFAULT NULL         -- sesión de caja activa
 )
 RETURNS uuid
 LANGUAGE plpgsql
@@ -276,8 +277,8 @@ DECLARE
   new_stock integer;
   v_product_exists boolean;
 BEGIN
-  INSERT INTO sales (metodo_pago, total, nota, moneda, pagado, vuelto)
-  VALUES (p_metodo_pago, p_total, p_nota, COALESCE(p_moneda, 'UYU'), p_pagado, p_vuelto)
+  INSERT INTO sales (metodo_pago, total, nota, moneda, pagado, vuelto, session_id)
+  VALUES (p_metodo_pago, p_total, p_nota, COALESCE(p_moneda, 'UYU'), p_pagado, p_vuelto, p_session_id)
   RETURNING id INTO new_sale_id;
 
   FOR item IN SELECT * FROM jsonb_array_elements(p_items) LOOP

@@ -6,6 +6,7 @@ import { CATEGORIES } from "@/types";
 import { fetchActiveProducts } from "@/lib/services/products";
 import { createSale } from "@/lib/services/sales";
 import { fetchActiveCombos, getExchangeRate, convertBRLtoUYU } from "@/lib/services/combos";
+import { getOpenSession } from "@/lib/services/cashSessions";
 import { useToast } from "@/components/ui/Toast";
 
 type Currency = "UYU" | "BRL";
@@ -14,6 +15,7 @@ export default function NuevaVentaPage() {
   const toast = useToast();
   const [products, setProducts] = useState<Product[]>([]);
   const [combos, setCombos] = useState<ComboWithProducts[]>([]);
+  const [openSessionId, setOpenSessionId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [categoriaFilter, setCategoriaFilter] = useState<string>("");
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -45,14 +47,16 @@ export default function NuevaVentaPage() {
 
   async function loadData() {
     try {
-      const [productsData, combosData, rate] = await Promise.all([
+      const [productsData, combosData, rate, session] = await Promise.all([
         fetchActiveProducts(),
         fetchActiveCombos(),
         getExchangeRate(),
+        getOpenSession(),
       ]);
       setProducts(productsData);
       setCombos(combosData);
       setExchangeRate(rate);
+      setOpenSessionId(session?.id ?? null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al cargar datos");
     }
@@ -383,6 +387,7 @@ export default function NuevaVentaPage() {
         moneda: paidCurrency,
         pagado: paidAmount > 0 ? paidAmount : null,
         vuelto: paidAmount > 0 && changeCalculation.changeUYU >= 0 ? changeCalculation.changeUYU : null,
+        session_id: openSessionId,
         items: saleItems,
         combos: combosVendidos.length > 0 ? combosVendidos : undefined,
       });
