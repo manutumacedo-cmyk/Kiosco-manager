@@ -13,6 +13,9 @@ export async function createSale(params: {
   metodo_pago: string;
   total: number;
   nota: string | null;
+  moneda: string;
+  pagado: number | null;
+  vuelto: number | null;
   items: Array<{
     product_id: string;
     cantidad: number;
@@ -32,6 +35,9 @@ export async function createSale(params: {
     p_metodo_pago: params.metodo_pago,
     p_total: params.total,
     p_nota: params.nota,
+    p_moneda: params.moneda,
+    p_pagado: params.pagado,
+    p_vuelto: params.vuelto,
     p_items: params.items.map((it) => ({
       product_id: it.product_id,
       cantidad: it.cantidad,
@@ -82,6 +88,9 @@ async function createSaleFallback(params: {
   metodo_pago: string;
   total: number;
   nota: string | null;
+  moneda: string;
+  pagado: number | null;
+  vuelto: number | null;
   items: Array<{
     product_id: string;
     cantidad: number;
@@ -102,6 +111,9 @@ async function createSaleFallback(params: {
       metodo_pago: params.metodo_pago,
       total: params.total,
       nota: params.nota,
+      moneda: params.moneda,
+      pagado: params.pagado,
+      vuelto: params.vuelto,
     })
     .select("id")
     .single();
@@ -294,6 +306,8 @@ export async function fetchSalesByDateRange(
     total: sale.total,
     nota: sale.nota,
     moneda: sale.moneda,
+    pagado: sale.pagado ?? null,
+    vuelto: sale.vuelto ?? null,
     estado: sale.estado || "activa",
     created_at: sale.created_at,
     items: sale.sale_items?.map((item: any) => ({

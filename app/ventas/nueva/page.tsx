@@ -305,6 +305,9 @@ export default function NuevaVentaPage() {
         metodo_pago: metodo,
         total,
         nota: nota.trim() ? nota.trim() : null,
+        moneda: paidCurrency,
+        pagado: paidAmount > 0 ? paidAmount : null,
+        vuelto: paidAmount > 0 && changeCalculation.changeUYU >= 0 ? changeCalculation.changeUYU : null,
         items: saleItems,
         combos: combosVendidos.length > 0 ? combosVendidos : undefined,
       });

@@ -51,6 +51,8 @@ export interface Sale {
   total: number;
   nota: string | null;
   moneda: string;
+  pagado: number | null;
+  vuelto: number | null;
   estado: string; // 'activa' | 'anulada'
   created_at: string;
 }
