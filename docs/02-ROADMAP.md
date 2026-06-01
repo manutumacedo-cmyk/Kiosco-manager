@@ -71,8 +71,8 @@ y sin esperas perceptibles.
 ## FASE 3 · Turno / Sesión de caja 🔴
 *Objetivo: operar por turnos reales con apertura/cierre manual, aunque crucen la medianoche.*
 
-- [ ] **3.0** **Rediseñar pantalla de ventas**: grid de botones por categoría, panel derecho como
-      modal de cobro. (M10)
+- [x] **3.0** **Rediseñar pantalla de ventas**: grid de botones por categoría, panel derecho como
+      modal de cobro. (M10) ✅
 - [ ] **3.1** Modelo de **sesión de caja**: tabla `cash_sessions` con
       `cajero`, `apertura_at`, `monto_inicial`, `cierre_at`, `estado` (abierta/cerrada).
 - [ ] **3.2** Pantalla **Abrir caja** (elegir/escribir cajero + monto inicial) y **Cerrar caja**
