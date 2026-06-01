@@ -46,12 +46,14 @@ export async function fetchTodayReport(): Promise<TodayReport> {
       .select("id,fecha,metodo_pago,total,nota,moneda,created_at")
       .gte("fecha", start.toISOString())
       .lte("fecha", end.toISOString())
+      .eq("estado", "activa")
       .order("fecha", { ascending: false }),
     supabase
       .from("sale_items")
-      .select("product_id, cantidad, precio_unitario")
+      .select("product_id, cantidad, precio_unitario, sales!inner(estado)")
       .gte("created_at", start.toISOString())
-      .lte("created_at", end.toISOString()),
+      .lte("created_at", end.toISOString())
+      .eq("sales.estado", "activa"),
     supabase
       .from("products")
       .select("id,nombre,categoria,stock,stock_minimo,activo,precio,costo,created_at")
@@ -70,12 +72,14 @@ export async function fetchTodayReport(): Promise<TodayReport> {
       `)
       .gte("fecha", start.toISOString())
       .lte("fecha", end.toISOString())
+      .eq("estado", "activa")
       .order("fecha", { ascending: false }),
     supabase
       .from("sale_combos")
-      .select("combo_id, combo_nombre, cantidad, precio_unitario, costo_unitario")
+      .select("combo_id, combo_nombre, cantidad, precio_unitario, costo_unitario, sales!inner(estado)")
       .gte("created_at", start.toISOString())
-      .lte("created_at", end.toISOString()),
+      .lte("created_at", end.toISOString())
+      .eq("sales.estado", "activa"),
   ]);
 
   if (s1.error) throw new Error(s1.error.message);
@@ -128,21 +132,24 @@ export async function fetchWeeklyReport(): Promise<PeriodReport> {
       .select("id,fecha,metodo_pago,total,nota,moneda,created_at")
       .gte("fecha", start.toISOString())
       .lte("fecha", end.toISOString())
+      .eq("estado", "activa")
       .order("fecha", { ascending: false }),
     supabase
       .from("sale_items")
-      .select("product_id, cantidad, precio_unitario")
+      .select("product_id, cantidad, precio_unitario, sales!inner(estado)")
       .gte("created_at", start.toISOString())
-      .lte("created_at", end.toISOString()),
+      .lte("created_at", end.toISOString())
+      .eq("sales.estado", "activa"),
     supabase
       .from("products")
       .select("id,nombre,categoria,stock,stock_minimo,activo,precio,costo,created_at")
       .eq("activo", true),
     supabase
       .from("sale_combos")
-      .select("combo_id, combo_nombre, cantidad, precio_unitario, costo_unitario")
+      .select("combo_id, combo_nombre, cantidad, precio_unitario, costo_unitario, sales!inner(estado)")
       .gte("created_at", start.toISOString())
-      .lte("created_at", end.toISOString()),
+      .lte("created_at", end.toISOString())
+      .eq("sales.estado", "activa"),
   ]);
 
   if (s1.error) throw new Error(s1.error.message);
@@ -185,21 +192,24 @@ export async function fetchMonthlyReport(): Promise<PeriodReport> {
       .select("id,fecha,metodo_pago,total,nota,moneda,created_at")
       .gte("fecha", start.toISOString())
       .lte("fecha", end.toISOString())
+      .eq("estado", "activa")
       .order("fecha", { ascending: false }),
     supabase
       .from("sale_items")
-      .select("sale_id, product_id, cantidad, precio_unitario")
+      .select("sale_id, product_id, cantidad, precio_unitario, sales!inner(estado)")
       .gte("created_at", start.toISOString())
-      .lte("created_at", end.toISOString()),
+      .lte("created_at", end.toISOString())
+      .eq("sales.estado", "activa"),
     supabase
       .from("products")
       .select("id,nombre,categoria,stock,stock_minimo,activo,precio,costo,created_at")
       .eq("activo", true),
     supabase
       .from("sale_combos")
-      .select("combo_id, combo_nombre, cantidad, precio_unitario, costo_unitario")
+      .select("combo_id, combo_nombre, cantidad, precio_unitario, costo_unitario, sales!inner(estado)")
       .gte("created_at", start.toISOString())
-      .lte("created_at", end.toISOString()),
+      .lte("created_at", end.toISOString())
+      .eq("sales.estado", "activa"),
   ]);
 
   if (s1.error) throw new Error(s1.error.message);
