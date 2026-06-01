@@ -29,15 +29,15 @@
 ## FASE 1 · Que la caja cuadre (la plata) 🔴
 *Objetivo: que el total cobrado, el detalle y la moneda sean siempre coherentes.*
 
-- [ ] **1.1** Arreglar el extra **Monster** que no se suma al `precio_unitario` guardado (B7).
-      → En [`app/ventas/nueva/page.tsx`](../app/ventas/nueva/page.tsx#L257-L265), incluir el extra Monster
+- [x] **1.1** Arreglar el extra **Monster** que no se suma al `precio_unitario` guardado (B7). ✅
+      → En [`app/ventas/nueva/page.tsx`](../app/ventas/nueva/page.tsx), incluir el extra Monster
       en el precio del ítem, igual que se hace con `shotExtra`. Verificar que `Σ(items) === total`.
 - [x] **1.2** Guardar **moneda + monto pagado + vuelto** por venta (B3, M8). ✅
       → Añadir columnas (`moneda`, `pagado`, `vuelto`, o tabla de pagos) y pasarlas por `createSale`
       y `create_sale_atomic`. Que el cobro en BRL se registre como BRL.
-- [ ] **1.3** Arreglar la **atribución de combos** en la venta y reportes (B2).
-      → Decidir modelo: guardar los ítems del combo con su **precio prorrateado** (no 0) o marcar la
-      línea combo de forma que los reportes la entiendan. Que la ganancia limpia salga bien con combos.
+- [x] **1.3** Arreglar la **atribución de combos** en la venta y reportes (B2). ✅
+      → Combos guardados en `sale_combos` con `costo_unitario`; reportes leen de ahí.
+      Ganancia limpia correcta. Error handling en query `sale_combos` agregado.
 
 **Criterio de salida:** hago 3 ventas de prueba (normal, con Monster, con combo, una en BRL) y
 **todo cuadra** en el detalle y en el reporte.
