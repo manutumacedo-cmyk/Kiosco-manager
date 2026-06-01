@@ -59,7 +59,7 @@
       atajo para **cobrar** · `Esc` para limpiar. Documentar los atajos en pantalla.
 - [ ] **2.2** Soporte de **lector de código de barras** (M2):
       campo `codigo` en `products` · la búsqueda matchea por código exacto y agrega directo al carrito.
-- [ ] **2.3** **Sacar los insights del camino de venta** (B4/M6):
+- [x] **2.3** **Sacar los insights del camino de venta** (B4/M6): ✅
       que NO corra tras cada venta. Moverlo a cálculo on-demand (al abrir el dashboard) o a una
       vista/consulta SQL agregada. Eliminar el patrón N+1.
 

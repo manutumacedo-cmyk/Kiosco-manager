@@ -66,7 +66,12 @@
 
 ## 🟠 PROBLEMAS IMPORTANTES
 
-### B4 · El motor de "insights" corre tras CADA venta y es N+1 🟠
+### B4 · El motor de "insights" corre tras CADA venta y es N+1 🟠 — ✅ RESUELTO (commit 3a59a0f)
+> **Update (Fase 2.3):** se eliminaron las dos llamadas a `generatePostSaleInsights` de `createSale`
+> y `createSaleFallback` en [`lib/services/sales.ts`](../lib/services/sales.ts). El hook y el import
+> fueron removidos. Los insights pasan a calcularse on-demand desde el dashboard. Camino de venta
+> limpio: cero queries extras por venta. (M6 cerrado en la misma iteración.)
+
 - **Dónde:** [`lib/services/strategicInsights.ts`](../lib/services/strategicInsights.ts#L120-L164) (`calculateCurrentMetrics` hace **una consulta por cada producto**) · disparado en [`sales.ts`](../lib/services/sales.ts#L46).
 - **Qué pasa:** Después de cada venta dispara múltiples queries a Supabase. En hora pico = carga
   innecesaria y posible lentitud. Además corre en `setTimeout` del cliente: si el cajero navega o
@@ -137,7 +142,7 @@
 | **M3** | **Sesión de caja** (apertura/cierre con cajero y monto inicial) | 💵 Cuadre + 👥 Turnos | — |
 | **M4** | **Registrar cajero por venta** (saber quién vendió qué) | 👥 Turnos | — |
 | **M5** | **PWA + cola offline** (guardar ventas localmente y sincronizar) | 🛡️ Prevención | — |
-| **M6** | **Mover los insights** fuera del camino de venta (on-demand o vista SQL) | ⚡ Rápido | — |
+| **M6** | **Mover los insights** fuera del camino de venta (on-demand o vista SQL) | ⚡ Rápido | Fase 2.3 |
 | **M7** | **Activar RLS** en Supabase | 🔒 Seguridad | — |
 | **M8** | Guardar **moneda + pagado + vuelto** en cada venta | 💵 Cuadre | Fase 1.2 |
 | **M9** | **Impresión de ticket / comanda** (opcional, según necesidad) | 🧾 Extra | — |
