@@ -155,6 +155,145 @@
 
 ---
 
+## 🔍 PASADA DE AUDITORÍA PRE-PRODUCCIÓN — 2026-06-01 (B18+)
+
+> Revisión crítica del código completo antes del **primer uso real** (kiosco nocturno, frontera
+> Rivera/Sant'Ana). Agrupada como el análisis: **flujo de venta · flujo de caja · datos críticos**.
+> Los 🔴 de acá se disparan en uso *normal*, no en casos raros — son los que deciden si la caja
+> cuadra la noche uno.
+
+### Flujo de venta
+
+#### B18 · Venta duplicada al reintentar tras corte de red 🔴
+- **Dónde:** [`createSale`](../lib/services/sales.ts#L34) (sin clave de idempotencia) · el POS conserva
+  el carrito al fallar en [`app/ventas/nueva/page.tsx`](../app/ventas/nueva/page.tsx#L413).
+- **Qué pasa:** Si `create_sale_atomic` **commitea en el servidor pero la respuesta se pierde** (WiFi
+  inestable), el front lanza error y mantiene el carrito. El cajero vuelve a tocar COBRAR → se ejecuta
+  la RPC de nuevo.
+- **Impacto:** Venta doble, doble descuento de stock y doble efectivo esperado en el cuadre. Es justo
+  el escenario de "cortes" que el dueño pidió prevenir (00-CONTEXTO).
+
+#### B19 · El insert de combos no es atómico con la venta 🟠
+- **Dónde:** [`lib/services/sales.ts`](../lib/services/sales.ts#L62) — `sale_combos` se inserta en una
+  llamada separada *después* de la RPC.
+- **Qué pasa:** La RPC `create_sale_atomic` commitea venta + ítems + stock; el insert de `sale_combos`
+  va aparte. Si el corte ocurre entre ambos, la venta queda con stock descontado pero sin fila de combo.
+- **Impacto:** El ingreso y costo del combo desaparecen del reporte y `Σ(líneas) ≠ total`. Reabre
+  parcialmente B2 por una vía distinta (la costura no atómica).
+
+#### B20 · "Stock insuficiente" muestra el UUID y voltea toda la venta 🟠
+- **Dónde:** [`lib/sql/00-schema-completo.sql`](../lib/sql/00-schema-completo.sql#L305) —
+  `RAISE EXCEPTION 'Stock insuficiente para producto %'` con el `product_id` (UUID).
+- **Qué pasa:** Si un solo ítem queda corto, la RPC aborta la venta entera y el front muestra un UUID
+  hexadecimal, no el nombre del producto.
+- **Impacto:** En hora pico el cajero no sabe qué ítem sacar, prueba a ciegas y se traba la cola. Pelea
+  contra la prioridad #1 (rápido).
+
+#### B21 · Combo + producto suelto que comparten componente → sobreventa 🟠
+- **Dónde:** guard del carrito en [`app/ventas/nueva/page.tsx`](../app/ventas/nueva/page.tsx#L166) ·
+  chequeo de stock del combo en [líneas 191-198](../app/ventas/nueva/page.tsx#L191).
+- **Qué pasa:** El guard compara la línea suelta contra el stock total e ignora lo que el combo consume
+  del mismo producto. Se puede armar "Vaso X suelto = stock total" + un combo que también lleva Vaso X.
+- **Impacto:** El carrito lo acepta pero la RPC lo rechaza entero al confirmar (con el error UUID de
+  B20). Otro bloqueo de hora pico.
+
+#### B22 · No se valida que el pago sea ≥ total 🟡
+- **Dónde:** botón siempre habilitado en [`app/ventas/nueva/page.tsx`](../app/ventas/nueva/page.tsx#L846) ·
+  aviso "Falta dinero" sin bloqueo en [líneas 788-790](../app/ventas/nueva/page.tsx#L788).
+- **Qué pasa:** Si el cliente paga de menos, se muestra "Falta dinero" pero igual deja CONFIRMAR y
+  guarda `pagado < total`.
+- **Impacto:** El cuadre asume cobro completo → cajón corto. Bajo si el cajero presta atención, pero
+  nada lo fuerza.
+
+### Flujo de caja
+
+#### B23 · El cajón de PESOS queda corto: el vuelto en pesos sobre ventas en reales no se resta 🔴
+- **Dónde:** [`close_cash_session`](../lib/sql/00-schema-completo.sql#L369) (efectivo UYU = `Σ(total)`
+  solo de `moneda='UYU'`, línea 371) · [`getSessionTotals`](../lib/services/cashSessions.ts#L43) ·
+  display en [`app/caja/page.tsx`](../app/caja/page.tsx#L349) · elección de moneda del vuelto en el
+  [POS](../app/ventas/nueva/page.tsx#L792).
+- **Qué pasa:** En una venta pagada en **BRL** con vuelto en **pesos**, el cajero saca pesos del cajón,
+  pero esa salida nunca se resta del efectivo UYU esperado (la venta tiene `moneda='BRL'`, así que no
+  entra en `total_efectivo_uyu`). El lado BRL sí está bien neteado; rompe específicamente el cajón de pesos.
+- **Impacto:** El "Efectivo total en caja $" del cierre sobreestima los pesos físicos por la suma de
+  todos los vueltos en pesos dados sobre ventas en reales. **El cajón de pesos falta todas las noches**
+  y nadie puede explicarlo. Rompe la prioridad #2 (que la caja cuadre).
+
+#### B24 · `paidCurrency` no se resetea entre ventas → ventas en pesos grabadas como BRL 🔴
+- **Dónde:** reset post-venta en [`app/ventas/nueva/page.tsx`](../app/ventas/nueva/page.tsx#L405)
+  (limpia todo menos `paidCurrency`) · estado en [línea 32](../app/ventas/nueva/page.tsx#L32) ·
+  se pasa como `moneda` en [línea 390](../app/ventas/nueva/page.tsx#L390).
+- **Qué pasa:** Tras cobrar en reales queda `paidCurrency='BRL'`. La siguiente venta confirmada rápido
+  (sin abrir la calculadora) se graba con `moneda='BRL'` y `pagado=null`.
+- **Impacto:** Esa venta no entra ni en efectivo UYU (es BRL) ni en efectivo BRL (`pagado` null) →
+  desaparece de ambos baldes, el cajón de pesos queda de más y `total_ventas ≠ efectivo+digital+brl`.
+  Se dispara con una secuencia trivial (una venta en reales y todas las siguientes "rápidas" salen mal).
+
+#### B25 · La calculadora es opcional → cobro en reales registrado como pesos 🔴
+- **Dónde:** default `paidCurrency='UYU'` en [`app/ventas/nueva/page.tsx`](../app/ventas/nueva/page.tsx#L32) ·
+  camino rápido CONFIRMAR VENTA en [línea 846](../app/ventas/nueva/page.tsx#L846).
+- **Qué pasa:** El camino rápido es confirmar sin abrir la calculadora; eso deja `moneda='UYU'`. Si el
+  cajero cobró físicamente en reales sin elegir un billete BRL, se graba como pesos.
+- **Impacto:** El cierre espera pesos que no están y no cuenta los reales que sí están. Descuadre en
+  ambas monedas.
+
+#### B26 · Anular después del cierre desincroniza el snapshot del turno 🔴
+- **Dónde:** [`cancel_sale`](../lib/sql/00-schema-completo.sql#L317) no verifica si la venta pertenece
+  a un turno cerrado · snapshot congelado en [`close_cash_session`](../lib/sql/00-schema-completo.sql#L381) ·
+  UI de anulación en [`app/reportes/ventas/page.tsx`](../app/reportes/ventas/page.tsx#L87).
+- **Qué pasa:** El snapshot del turno (`total_ventas`, efectivo, etc.) se congela al cerrar. Si después
+  se anula una venta de ese turno, el stock vuelve pero el total grabado del turno no baja.
+- **Impacto:** Stock devuelto sin ajuste de caja en el turno donde ya se contó y se llevó la plata. El
+  historial de turnos miente.
+
+#### B27 · Venta en el cambio de turno = plata invisible 🟠
+- **Dónde:** `openSessionId` cargado una sola vez al abrir el POS en
+  [`app/ventas/nueva/page.tsx`](../app/ventas/nueva/page.tsx#L52) · se pasa en [línea 398](../app/ventas/nueva/page.tsx#L398).
+- **Qué pasa:** Si la caja se cierra mientras hay un carrito abierto, la venta se inserta con el
+  `session_id` del turno ya cerrado, cuyo snapshot ya está congelado.
+- **Impacto:** Esa venta no aparece en ningún turno. Plata cobrada, nunca cuadrada. Edge, pero ocurre
+  justo en el relevo nocturno.
+
+#### B28 · El cierre no pide el efectivo contado real ni calcula diferencia 🟠
+- **Dónde:** resumen de cierre en [`app/caja/page.tsx`](../app/caja/page.tsx#L347) (solo muestra el
+  monto esperado) · `cash_sessions` sin columnas de contado/descuadre en
+  [`lib/sql/00-schema-completo.sql`](../lib/sql/00-schema-completo.sql#L48).
+- **Qué pasa:** El cierre solo muestra el efectivo *esperado*. Nunca pregunta cuánto contó el cajero ni
+  guarda la diferencia.
+- **Impacto:** Un arqueo que solo dice lo que *deberías* tener no detecta descuadres (y los de B23–B25
+  pasan inadvertidos). Sin dato de descuadre, no hay control de caja real.
+
+### Datos críticos
+
+#### B29 · No se guarda la tasa de cambio usada en cada venta 🔴
+- **Dónde:** `exchange_rate_config` es una sola fila mutable en
+  [`lib/services/combos.ts`](../lib/services/combos.ts#L134) · `sales` no tiene columna de tasa en
+  [`lib/sql/00-schema-completo.sql`](../lib/sql/00-schema-completo.sql#L57).
+- **Qué pasa:** Si el dueño actualiza la tasa a mitad de turno, no queda registro de a qué cambio se
+  cobró cada venta en reales.
+- **Impacto:** Imposible reconstruir el valor UYU de las ventas en BRL ni auditar el cuadre. Debería
+  guardarse `tasa_cambio` por venta.
+
+#### B30 · No se registra quién anuló una venta ni cuándo 🟠
+- **Dónde:** [`cancel_sale`](../lib/sql/00-schema-completo.sql#L317) no guarda autor ni timestamp ·
+  `sales` sin `anulada_por`/`anulada_at` en [`lib/sql/00-schema-completo.sql`](../lib/sql/00-schema-completo.sql#L57) ·
+  botón Anular sin rol/PIN en [`app/reportes/ventas/page.tsx`](../app/reportes/ventas/page.tsx#L263).
+- **Qué pasa:** Cualquiera puede anular cualquier venta (devuelve stock) sin dejar rastro de autor ni motivo.
+- **Impacto:** Agujero de fraude obvio para personal rotativo nocturno: anular una venta legítima y
+  quedarse con el efectivo. Sin auditoría no se detecta.
+
+> **Nota:** el costo en vivo de reportes históricos ya está cubierto por **B15**; no se duplica acá.
+
+### Higiene / repo
+
+#### B31 · Carpeta `web/` duplicada (copia vieja) 🟡
+- **Dónde:** [`web/`](../web/) en la raíz del repo.
+- **Qué pasa:** Es una copia desactualizada del proyecto (mismo patrón que B13, que sí se borró). No
+  está en el camino activo (la app corre desde la raíz).
+- **Impacto:** Invita a editar el archivo equivocado. Conviene borrarla.
+
+---
+
 ## 💡 OPORTUNIDADES DE MEJORA (no son bugs, suman a las prioridades)
 
 | ID | Mejora | Prioridad de negocio | Cerrado en |
@@ -179,3 +318,7 @@ Lo que **más urge** para que funcione en la vida real:
 2. **Turno / sesión de caja** (B1 + M3 + M4) — la operación nocturna real.
 3. **Velocidad con teclado** (M1, M2, B4/M6) — para la hora pico.
 4. **Red de seguridad** (B8/M5, B5/M7) — prevención de cortes y seguridad.
+
+> **Pasada pre-producción (2026-06-01) — ver B18–B31.** Bloqueantes del primer uso real, por urgencia:
+> el **cuadre cross-moneda** (B23, B24, B25), el **arqueo real al cierre** (B28) y el **reintento
+> seguro de venta** (B18). Esos tres definen si la caja cuadra la noche uno.
