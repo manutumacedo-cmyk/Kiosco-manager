@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import type { Product, CartItem, CategoryType, ComboWithProducts } from "@/types";
 import { CATEGORIES } from "@/types";
 import { fetchActiveProducts } from "@/lib/services/products";
@@ -16,6 +17,7 @@ export default function NuevaVentaPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [combos, setCombos] = useState<ComboWithProducts[]>([]);
   const [openSessionId, setOpenSessionId] = useState<string | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [q, setQ] = useState("");
   const [categoriaFilter, setCategoriaFilter] = useState<string>("");
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -57,6 +59,7 @@ export default function NuevaVentaPage() {
       setCombos(combosData);
       setExchangeRate(rate);
       setOpenSessionId(session?.id ?? null);
+      setSessionChecked(true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al cargar datos");
     }
@@ -428,6 +431,24 @@ export default function NuevaVentaPage() {
   const gridProducts = q.trim()
     ? filtered
     : products.filter((p) => p.activo && p.stock > 0 && p.categoria === activeTab);
+
+  if (sessionChecked && openSessionId === null) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-[var(--deep-dark)] gap-6 p-6">
+        <div className="text-6xl">🔒</div>
+        <div className="text-center space-y-2">
+          <p className="text-xl font-bold text-[var(--text-primary)]">No hay turno abierto.</p>
+          <p className="text-[var(--text-secondary)]">Abrí la caja antes de cobrar.</p>
+        </div>
+        <Link
+          href="/caja"
+          className="px-6 py-3 rounded-lg font-bold uppercase tracking-wide transition-all neon-outline-cyan neon-text-cyan hover:bg-[var(--neon-cyan)]/10"
+        >
+          Ir a Caja →
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen flex flex-col bg-[var(--deep-dark)] overflow-hidden">
