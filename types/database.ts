@@ -66,11 +66,12 @@ export interface SaleItem {
   created_at: string;
 }
 
-/** Tipo para sale_items con join a products (usado en reportes) */
+/** Tipo para sale_items con datos de producto resueltos en TypeScript (sin FK a products) */
 export interface SaleItemWithProduct {
+  product_id: string;
   cantidad: number;
   precio_unitario: number;
-  products: { nombre: string; costo: number } | { nombre: string; costo: number }[] | null;
+  products: { nombre: string; costo: number } | null;
 }
 
 /** Cierre de caja con totales por método de pago */

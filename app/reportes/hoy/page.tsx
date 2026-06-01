@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Sale, SaleItemWithProduct, Product, CierreCaja } from "@/types";
-import { fetchTodayReport, fetchWeeklyReport, fetchMonthlyReport, type SaleWithItems } from "@/lib/services/reports";
+import { fetchTodayReport, fetchWeeklyReport, fetchMonthlyReport, type SaleWithItems, type ComboSaleData } from "@/lib/services/reports";
 import { useToast } from "@/components/ui/Toast";
 import { closeCashRegister, getCierreHoy } from "@/lib/services/cashRegister";
 
@@ -14,6 +14,7 @@ interface ProductAnalysis {
   gananciaTotal: number;
   margenPorcentaje: number;
   ingresoTotal: number;
+  esCombo?: boolean;
 }
 
 export default function DashboardPage() {
@@ -22,9 +23,9 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   // Datos por período
-  const [dailyData, setDailyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; salesWithItems: SaleWithItems[] }>({ sales: [], items: [], salesWithItems: [] });
-  const [weeklyData, setWeeklyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; products: Product[] }>({ sales: [], items: [], products: [] });
-  const [monthlyData, setMonthlyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; products: Product[] }>({ sales: [], items: [], products: [] });
+  const [dailyData, setDailyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; salesWithItems: SaleWithItems[]; comboItems: ComboSaleData[] }>({ sales: [], items: [], salesWithItems: [], comboItems: [] });
+  const [weeklyData, setWeeklyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; products: Product[]; comboItems: ComboSaleData[] }>({ sales: [], items: [], products: [], comboItems: [] });
+  const [monthlyData, setMonthlyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; products: Product[]; comboItems: ComboSaleData[] }>({ sales: [], items: [], products: [], comboItems: [] });
 
   // Cierre de caja
   const [showCierreModal, setShowCierreModal] = useState(false);
@@ -41,9 +42,9 @@ export default function DashboardPage() {
         getCierreHoy(),
       ]);
 
-      setDailyData({ sales: today.sales, items: today.items, salesWithItems: today.salesWithItems });
-      setWeeklyData({ sales: week.sales, items: week.items, products: week.products });
-      setMonthlyData({ sales: month.sales, items: month.items, products: month.products });
+      setDailyData({ sales: today.sales, items: today.items, salesWithItems: today.salesWithItems, comboItems: today.comboItems });
+      setWeeklyData({ sales: week.sales, items: week.items, products: week.products, comboItems: week.comboItems });
+      setMonthlyData({ sales: month.sales, items: month.items, products: month.products, comboItems: month.comboItems });
       setCierreHoy(cierre);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al cargar datos");
@@ -82,8 +83,7 @@ export default function DashboardPage() {
   const calcularMetricas = (sales: Sale[], items: SaleItemWithProduct[]) => {
     const totalIngresos = sales.reduce((a, s) => a + Number(s.total), 0);
     const totalCostos = items.reduce((acc, it) => {
-      const prod = Array.isArray(it.products) ? it.products[0] : it.products;
-      const costo = prod?.costo ?? 0;
+      const costo = it.products?.costo ?? 0;
       return acc + (costo * Number(it.cantidad || 0));
     }, 0);
     const gananciaLimpia = totalIngresos - totalCostos;
@@ -95,12 +95,12 @@ export default function DashboardPage() {
   const analizarProductos = (items: SaleItemWithProduct[]): ProductAnalysis[] => {
     const productMap = new Map<string, ProductAnalysis>();
 
-    items.forEach(it => {
-      const prod = Array.isArray(it.products) ? it.products[0] : it.products;
-      const nombre = prod?.nombre ?? "Desconocido";
+    // Solo productos individuales (precio_unitario > 0); los componentes de combos tienen precio 0
+    items.filter(it => Number(it.precio_unitario) > 0).forEach(it => {
+      const nombre = it.products?.nombre ?? "Desconocido";
       const cantidad = Number(it.cantidad || 0);
       const precioVenta = Number(it.precio_unitario || 0);
-      const costo = prod?.costo ?? 0;
+      const costo = it.products?.costo ?? 0;
       const gananciaUnitaria = precioVenta - costo;
       const gananciaTotal = gananciaUnitaria * cantidad;
       const ingresoTotal = precioVenta * cantidad;
@@ -110,7 +110,7 @@ export default function DashboardPage() {
         existing.cantidad += cantidad;
         existing.gananciaTotal += gananciaTotal;
         existing.ingresoTotal += ingresoTotal;
-        existing.margenPorcentaje = ingresoTotal > 0 ? (existing.gananciaTotal / ingresoTotal) * 100 : 0;
+        existing.margenPorcentaje = existing.ingresoTotal > 0 ? (existing.gananciaTotal / existing.ingresoTotal) * 100 : 0;
       } else {
         productMap.set(nombre, {
           nombre,
@@ -123,6 +123,38 @@ export default function DashboardPage() {
     });
 
     return Array.from(productMap.values());
+  };
+
+  const analizarCombos = (comboItems: ComboSaleData[]): ProductAnalysis[] => {
+    const comboMap = new Map<string, ProductAnalysis>();
+
+    comboItems.forEach(c => {
+      const nombre = c.combo_nombre;
+      const cantidad = Number(c.cantidad || 0);
+      const precioVenta = Number(c.precio_unitario || 0);
+      const costo = Number(c.costo_unitario || 0);
+      const gananciaTotal = (precioVenta - costo) * cantidad;
+      const ingresoTotal = precioVenta * cantidad;
+
+      if (comboMap.has(nombre)) {
+        const existing = comboMap.get(nombre)!;
+        existing.cantidad += cantidad;
+        existing.gananciaTotal += gananciaTotal;
+        existing.ingresoTotal += ingresoTotal;
+        existing.margenPorcentaje = existing.ingresoTotal > 0 ? (existing.gananciaTotal / existing.ingresoTotal) * 100 : 0;
+      } else {
+        comboMap.set(nombre, {
+          nombre,
+          cantidad,
+          gananciaTotal,
+          ingresoTotal,
+          margenPorcentaje: ingresoTotal > 0 ? (gananciaTotal / ingresoTotal) * 100 : 0,
+          esCombo: true,
+        });
+      }
+    });
+
+    return Array.from(comboMap.values());
   };
 
   const analizarHorarios = (sales: Sale[]) => {
@@ -165,11 +197,15 @@ export default function DashboardPage() {
       .sort((a, b) => b.fecha.getTime() - a.fecha.getTime());
   }, [weeklyData.sales]);
 
-  // Análisis de productos
+  // Análisis de productos (excluye componentes de combos)
   const productosMes = useMemo(() => analizarProductos(monthlyData.items), [monthlyData.items]);
-  const masRentables = useMemo(() => [...productosMes].sort((a, b) => b.gananciaTotal - a.gananciaTotal).slice(0, 5), [productosMes]);
-  const masVendidos = useMemo(() => [...productosMes].sort((a, b) => b.cantidad - a.cantidad).slice(0, 5), [productosMes]);
-  const menosRentables = useMemo(() => [...productosMes].sort((a, b) => a.margenPorcentaje - b.margenPorcentaje).slice(0, 5), [productosMes]);
+  // Análisis de combos
+  const combosMes = useMemo(() => analizarCombos(monthlyData.comboItems), [monthlyData.comboItems]);
+  // Todos juntos para rankings
+  const todosLosMes = useMemo(() => [...productosMes, ...combosMes], [productosMes, combosMes]);
+  const masRentables = useMemo(() => [...todosLosMes].sort((a, b) => b.gananciaTotal - a.gananciaTotal).slice(0, 5), [todosLosMes]);
+  const masVendidos = useMemo(() => [...todosLosMes].sort((a, b) => b.cantidad - a.cantidad).slice(0, 5), [todosLosMes]);
+  const menosRentables = useMemo(() => [...todosLosMes].sort((a, b) => a.margenPorcentaje - b.margenPorcentaje).slice(0, 5), [todosLosMes]);
 
   // Análisis de horarios
   const horariosPico = useMemo(() => analizarHorarios(monthlyData.sales).slice(0, 3), [monthlyData.sales]);
@@ -333,10 +369,9 @@ export default function DashboardPage() {
                           const fecha = new Date(sale.fecha);
                           const hora = fecha.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
                           const items = sale.sale_items || [];
-                          const itemsText = items.map(item => {
-                            const prod = Array.isArray(item.products) ? item.products[0] : item.products;
-                            return `${item.cantidad}x ${prod?.nombre || 'Desconocido'}`;
-                          }).join(', ');
+                          const itemsText = items.map(item =>
+                            `${item.cantidad}x ${item.nombre}`
+                          ).join(', ');
 
                           return (
                             <tr key={sale.id} className="border-t border-[var(--slate-gray)] hover:bg-[var(--carbon-gray)]">
@@ -498,7 +533,10 @@ export default function DashboardPage() {
                   <div className="space-y-3">
                     {masVendidos.map((p, i) => (
                       <div key={i} className="flex justify-between items-center border-b border-[var(--slate-gray)] pb-2">
-                        <span className="text-[var(--text-primary)]">{i + 1}. {p.nombre}</span>
+                        <span className="text-[var(--text-primary)]">
+                          {i + 1}. {p.nombre}
+                          {p.esCombo && <span className="ml-2 text-xs text-[var(--neon-magenta)] font-bold">COMBO</span>}
+                        </span>
                         <span className="font-mono font-bold text-[var(--neon-cyan)]">{p.cantidad} u.</span>
                       </div>
                     ))}
@@ -510,13 +548,53 @@ export default function DashboardPage() {
                   <div className="space-y-3">
                     {masRentables.map((p, i) => (
                       <div key={i} className="flex justify-between items-center border-b border-[var(--slate-gray)] pb-2">
-                        <span className="text-[var(--text-primary)]">{i + 1}. {p.nombre}</span>
+                        <span className="text-[var(--text-primary)]">
+                          {i + 1}. {p.nombre}
+                          {p.esCombo && <span className="ml-2 text-xs text-[var(--neon-magenta)] font-bold">COMBO</span>}
+                        </span>
                         <span className="font-mono font-bold text-[var(--neon-magenta)]">${p.gananciaTotal.toFixed(2)}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               </div>
+
+              {/* Combos del mes */}
+              {combosMes.length > 0 && (
+                <div className="data-card neon-outline-magenta">
+                  <div className="text-[var(--neon-magenta)] font-bold text-xl uppercase tracking-wide mb-4">
+                    🎁 Combos Vendidos Este Mes
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-[var(--carbon-gray)] border-b-2 border-[var(--neon-magenta)]">
+                        <tr>
+                          <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Combo</th>
+                          <th className="p-3 text-right text-[var(--text-secondary)] uppercase text-xs tracking-wide">Vendidos</th>
+                          <th className="p-3 text-right text-[var(--text-secondary)] uppercase text-xs tracking-wide">Ingresos</th>
+                          <th className="p-3 text-right text-[var(--text-secondary)] uppercase text-xs tracking-wide">Ganancia</th>
+                          <th className="p-3 text-right text-[var(--text-secondary)] uppercase text-xs tracking-wide">Margen %</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {combosMes.sort((a, b) => b.gananciaTotal - a.gananciaTotal).map((c, i) => (
+                          <tr key={i} className="border-t border-[var(--slate-gray)] hover:bg-[var(--carbon-gray)]">
+                            <td className="p-3 text-[var(--text-primary)] font-medium">{c.nombre}</td>
+                            <td className="p-3 text-right font-mono text-[var(--neon-cyan)]">{c.cantidad}</td>
+                            <td className="p-3 text-right font-mono text-[var(--neon-cyan)]">${c.ingresoTotal.toFixed(2)}</td>
+                            <td className="p-3 text-right font-mono font-bold text-[var(--neon-magenta)]">${c.gananciaTotal.toFixed(2)}</td>
+                            <td className="p-3 text-right font-mono font-bold" style={{
+                              color: c.margenPorcentaje > 40 ? 'var(--success)' : c.margenPorcentaje > 20 ? 'var(--warning)' : 'var(--error)'
+                            }}>
+                              {c.margenPorcentaje.toFixed(1)}%
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -653,10 +731,10 @@ export default function DashboardPage() {
               <div className="data-card neon-outline-magenta">
                 <div className="flex items-center justify-between mb-4">
                   <div className="text-[var(--neon-magenta)] font-bold text-xl uppercase tracking-wide">
-                    💰 Análisis de Margen por Producto (Último Mes)
+                    💰 Análisis de Margen por Producto y Combo (Último Mes)
                   </div>
                   <div className="text-sm text-[var(--text-secondary)]">
-                    {productosMes.length} productos
+                    {productosMes.length} productos · {combosMes.length} combos
                   </div>
                 </div>
 
@@ -674,7 +752,7 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {productosMes
+                      {todosLosMes
                         .sort((a, b) => b.gananciaTotal - a.gananciaTotal)
                         .map((p, i) => {
                           const margenColor = p.margenPorcentaje > 40
@@ -694,7 +772,10 @@ export default function DashboardPage() {
                               className="border-t border-[var(--slate-gray)] hover:bg-[var(--carbon-gray)] transition-colors"
                             >
                               <td className="p-3 text-[var(--text-muted)] font-mono">{i + 1}</td>
-                              <td className="p-3 text-[var(--text-primary)] font-medium">{p.nombre}</td>
+                              <td className="p-3 text-[var(--text-primary)] font-medium">
+                                {p.nombre}
+                                {p.esCombo && <span className="ml-2 text-xs text-[var(--neon-magenta)] font-bold border border-[var(--neon-magenta)] px-1 rounded">COMBO</span>}
+                              </td>
                               <td className="p-3 text-right font-mono text-[var(--neon-cyan)]">{p.cantidad}</td>
                               <td className="p-3 text-right font-mono text-[var(--neon-cyan)]">
                                 ${p.ingresoTotal.toFixed(2)}
@@ -735,7 +816,7 @@ export default function DashboardPage() {
                   </table>
                 </div>
 
-                {productosMes.length === 0 && (
+                {todosLosMes.length === 0 && (
                   <div className="text-center py-12">
                     <div className="text-4xl mb-4">📊</div>
                     <div className="text-[var(--text-secondary)]">

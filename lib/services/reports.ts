@@ -3,9 +3,10 @@ import type { Sale, SaleItemWithProduct, Product } from "@/types";
 
 export interface SaleWithItems extends Sale {
   sale_items?: Array<{
+    product_id: string;
     cantidad: number;
     precio_unitario: number;
-    products: { nombre: string } | { nombre: string }[] | null;
+    nombre: string;
   }>;
 }
 
@@ -48,7 +49,7 @@ export async function fetchTodayReport(): Promise<TodayReport> {
       .order("fecha", { ascending: false }),
     supabase
       .from("sale_items")
-      .select("cantidad, precio_unitario, products(nombre, costo)")
+      .select("product_id, cantidad, precio_unitario")
       .gte("created_at", start.toISOString())
       .lte("created_at", end.toISOString()),
     supabase
@@ -65,7 +66,7 @@ export async function fetchTodayReport(): Promise<TodayReport> {
         nota,
         moneda,
         created_at,
-        sale_items(cantidad, precio_unitario, products(nombre))
+        sale_items(product_id, cantidad, precio_unitario)
       `)
       .gte("fecha", start.toISOString())
       .lte("fecha", end.toISOString())
@@ -84,10 +85,26 @@ export async function fetchTodayReport(): Promise<TodayReport> {
   if (s5.error) throw new Error(s5.error.message);
 
   const sales = (s1.data ?? []) as Sale[];
-  const items = (s2.data ?? []) as SaleItemWithProduct[];
   const products = (s3.data ?? []) as Product[];
+  const prodMap = new Map(products.map(p => [p.id, { nombre: p.nombre, costo: p.costo }]));
+  const rawItems = (s2.data ?? []) as Array<{ product_id: string; cantidad: number; precio_unitario: number }>;
+  const items: SaleItemWithProduct[] = rawItems.map(it => ({
+    product_id: it.product_id,
+    cantidad: it.cantidad,
+    precio_unitario: it.precio_unitario,
+    products: prodMap.get(it.product_id) ?? null,
+  }));
   const alertas = products.filter((p) => p.stock <= p.stock_minimo);
-  const salesWithItems = (s4.data ?? []) as SaleWithItems[];
+  const rawSalesWithItems = (s4.data ?? []) as any[];
+  const salesWithItems: SaleWithItems[] = rawSalesWithItems.map((sale: any) => ({
+    ...sale,
+    sale_items: (sale.sale_items || []).map((item: any) => ({
+      product_id: item.product_id,
+      cantidad: item.cantidad,
+      precio_unitario: item.precio_unitario,
+      nombre: prodMap.get(item.product_id)?.nombre ?? 'Desconocido',
+    })),
+  }));
   const comboItems = (s5.data ?? []) as ComboSaleData[];
 
   return { sales, items, alertas, salesWithItems, comboItems };
@@ -114,7 +131,7 @@ export async function fetchWeeklyReport(): Promise<PeriodReport> {
       .order("fecha", { ascending: false }),
     supabase
       .from("sale_items")
-      .select("cantidad, precio_unitario, products(nombre, costo)")
+      .select("product_id, cantidad, precio_unitario")
       .gte("created_at", start.toISOString())
       .lte("created_at", end.toISOString()),
     supabase
@@ -133,10 +150,20 @@ export async function fetchWeeklyReport(): Promise<PeriodReport> {
   if (s3.error) throw new Error(s3.error.message);
   if (s4.error) throw new Error(s4.error.message);
 
+  const products = (s3.data ?? []) as Product[];
+  const prodMap = new Map(products.map(p => [p.id, { nombre: p.nombre, costo: p.costo }]));
+  const rawItems = (s2.data ?? []) as Array<{ product_id: string; cantidad: number; precio_unitario: number }>;
+  const items: SaleItemWithProduct[] = rawItems.map(it => ({
+    product_id: it.product_id,
+    cantidad: it.cantidad,
+    precio_unitario: it.precio_unitario,
+    products: prodMap.get(it.product_id) ?? null,
+  }));
+
   return {
     sales: (s1.data ?? []) as Sale[],
-    items: (s2.data ?? []) as SaleItemWithProduct[],
-    products: (s3.data ?? []) as Product[],
+    items,
+    products,
     comboItems: (s4.data ?? []) as ComboSaleData[],
   };
 }
@@ -161,7 +188,7 @@ export async function fetchMonthlyReport(): Promise<PeriodReport> {
       .order("fecha", { ascending: false }),
     supabase
       .from("sale_items")
-      .select("cantidad, precio_unitario, sale_id, product_id, products(nombre, costo, precio)")
+      .select("sale_id, product_id, cantidad, precio_unitario")
       .gte("created_at", start.toISOString())
       .lte("created_at", end.toISOString()),
     supabase
@@ -180,10 +207,20 @@ export async function fetchMonthlyReport(): Promise<PeriodReport> {
   if (s3.error) throw new Error(s3.error.message);
   if (s4.error) throw new Error(s4.error.message);
 
+  const products = (s3.data ?? []) as Product[];
+  const prodMap = new Map(products.map(p => [p.id, { nombre: p.nombre, costo: p.costo }]));
+  const rawItems = (s2.data ?? []) as Array<{ sale_id: string; product_id: string; cantidad: number; precio_unitario: number }>;
+  const items: SaleItemWithProduct[] = rawItems.map(it => ({
+    product_id: it.product_id,
+    cantidad: it.cantidad,
+    precio_unitario: it.precio_unitario,
+    products: prodMap.get(it.product_id) ?? null,
+  }));
+
   return {
     sales: (s1.data ?? []) as Sale[],
-    items: (s2.data ?? []) as SaleItemWithProduct[],
-    products: (s3.data ?? []) as Product[],
+    items,
+    products,
     comboItems: (s4.data ?? []) as ComboSaleData[],
   };
 }

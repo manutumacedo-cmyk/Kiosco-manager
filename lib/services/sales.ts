@@ -272,6 +272,7 @@ export async function fetchSalesByDateRange(
   startDate: Date,
   endDate: Date
 ): Promise<Array<Sale & { items?: Array<{ product_id: string; cantidad: number; precio_unitario: number; nombre: string }> }>> {
+  // Query 1: ventas + items sin join a products (no hay FK intencional — ver schema B2)
   const { data, error } = await supabase
     .from("sales")
     .select(`
@@ -286,10 +287,7 @@ export async function fetchSalesByDateRange(
       sale_items (
         product_id,
         cantidad,
-        precio_unitario,
-        products (
-          nombre
-        )
+        precio_unitario
       )
     `)
     .gte("fecha", startDate.toISOString())
@@ -297,6 +295,16 @@ export async function fetchSalesByDateRange(
     .order("fecha", { ascending: false });
 
   if (error) throw new Error(`Error obteniendo ventas: ${error.message}`);
+
+  // Query 2: nombres de productos para lookup en TypeScript
+  // Los IDs de componentes de combos no van a matchear → "Producto eliminado" (comportamiento esperado)
+  const productIds = [...new Set(
+    (data || []).flatMap((s: any) => (s.sale_items || []).map((i: any) => i.product_id as string))
+  )];
+  const { data: productsData } = productIds.length > 0
+    ? await supabase.from("products").select("id, nombre").in("id", productIds)
+    : { data: [] };
+  const productMap = new Map((productsData || []).map((p: any) => [p.id as string, p.nombre as string]));
 
   // Transformar datos
   return (data || []).map((sale: any) => ({
@@ -314,7 +322,7 @@ export async function fetchSalesByDateRange(
       product_id: item.product_id,
       cantidad: item.cantidad,
       precio_unitario: item.precio_unitario,
-      nombre: item.products?.nombre || "Producto eliminado",
+      nombre: productMap.get(item.product_id) ?? "Producto eliminado",
     })),
   }));
 }
