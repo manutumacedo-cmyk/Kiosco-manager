@@ -2,7 +2,8 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { getOpenSession } from "@/lib/services/cashSessions";
 
 interface NavItem {
   href: string;
@@ -20,6 +21,13 @@ export default function CyberNav() {
   const pathname = usePathname();
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
+  const [cajaAbierta, setCajaAbierta] = useState(false);
+
+  useEffect(() => {
+    getOpenSession()
+      .then((s) => setCajaAbierta(!!s))
+      .catch(() => {});
+  }, []);
 
   async function handleLogout() {
     if (loggingOut) return;
@@ -71,6 +79,27 @@ export default function CyberNav() {
               </Link>
             );
           })}
+
+          {/* Link Caja con indicador de sesión */}
+          <Link
+            href="/caja"
+            className={`
+              flex items-center gap-2 px-4 py-2 rounded-lg
+              font-semibold text-sm uppercase tracking-wide
+              transition-all duration-300
+              ${
+                pathname.startsWith("/caja")
+                  ? "neon-outline-cyan neon-text-cyan"
+                  : "border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)]"
+              }
+            `}
+          >
+            <span className="text-lg">💰</span>
+            <span>Caja</span>
+            {cajaAbierta && (
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            )}
+          </Link>
 
           {/* Botón de Logout */}
           <button

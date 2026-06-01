@@ -49,6 +49,7 @@ export interface CashSession {
   cajero: string;
   apertura_at: string;
   monto_inicial: number;
+  monto_inicial_brl: number;
   estado: 'abierta' | 'cerrada';
   cerrado_por: string | null;
   cierre_at: string | null;

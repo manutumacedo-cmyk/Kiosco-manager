@@ -1,0 +1,403 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import {
+  getOpenSession,
+  getSessionTotals,
+  openCashSession,
+  closeCashSession,
+  type SessionTotals,
+} from "@/lib/services/cashSessions";
+import type { CashSession } from "@/types";
+
+type PageState = "loading" | "cerrada" | "abierta" | "cerrando";
+
+function fmt(n: number) {
+  return new Intl.NumberFormat("es-UY", { minimumFractionDigits: 2 }).format(n);
+}
+
+function fmtDate(iso: string) {
+  return new Intl.DateTimeFormat("es-UY", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(iso));
+}
+
+export default function CajaPage() {
+  const [pageState, setPageState] = useState<PageState>("loading");
+  const [session, setSession] = useState<CashSession | null>(null);
+  const [totals, setTotals] = useState<SessionTotals | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Abrir turno
+  const [cajero, setCajero] = useState("");
+  const [montoInicial, setMontoInicial] = useState("");
+  const [montoInicialBrl, setMontoInicialBrl] = useState("");
+  const [opening, setOpening] = useState(false);
+
+  // Cerrar turno
+  const [cerradoPor, setCerradoPor] = useState("");
+  const [notas, setNotas] = useState("");
+  const [closing, setClosing] = useState(false);
+
+  const loadSession = useCallback(async () => {
+    try {
+      const s = await getOpenSession();
+      setSession(s);
+      if (s) {
+        const t = await getSessionTotals(s.id);
+        setTotals(t);
+        setPageState("abierta");
+      } else {
+        setPageState("cerrada");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al cargar sesión");
+      setPageState("cerrada");
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSession();
+  }, [loadSession]);
+
+  // Refrescar totales cada 30s mientras el turno está abierto
+  useEffect(() => {
+    if (pageState !== "abierta" || !session) return;
+    const id = setInterval(async () => {
+      try {
+        setTotals(await getSessionTotals(session.id));
+      } catch {
+        // silencioso en background
+      }
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [pageState, session]);
+
+  async function handleOpen(e: React.FormEvent) {
+    e.preventDefault();
+    setOpening(true);
+    setError(null);
+    try {
+      const s = await openCashSession(cajero, parseFloat(montoInicial), parseFloat(montoInicialBrl) || 0);
+      setSession(s);
+      setTotals({
+        total_ventas: 0,
+        total_efectivo_uyu: 0,
+        total_efectivo_brl: 0,
+        total_digital: 0,
+        cantidad_ventas: 0,
+      });
+      setPageState("abierta");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al abrir caja");
+    } finally {
+      setOpening(false);
+    }
+  }
+
+  async function handleClose(e: React.FormEvent) {
+    e.preventDefault();
+    if (!session) return;
+    setClosing(true);
+    setError(null);
+    try {
+      await closeCashSession(session.id, cerradoPor, notas || null);
+      setSession(null);
+      setTotals(null);
+      setCerradoPor("");
+      setNotas("");
+      setPageState("cerrada");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al cerrar caja");
+    } finally {
+      setClosing(false);
+    }
+  }
+
+  if (pageState === "loading") {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <p className="text-[var(--text-secondary)] animate-pulse">Cargando...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
+      <h1 className="text-2xl font-bold neon-text-cyan uppercase tracking-widest">
+        Caja
+      </h1>
+
+      {error && (
+        <div className="p-4 rounded-lg border border-[var(--error)] text-[var(--error)] bg-[rgba(255,59,59,0.08)] text-sm">
+          {error}
+        </div>
+      )}
+
+      {/* ──────── CERRADA ──────── */}
+      {pageState === "cerrada" && (
+        <div className="data-card bg-[var(--carbon-gray)] border border-[var(--slate-gray)] rounded-xl p-6 space-y-6">
+          <div className="flex items-center gap-3">
+            <span className="w-3 h-3 rounded-full bg-red-500 inline-block" />
+            <span className="text-[var(--text-secondary)] uppercase tracking-wide text-sm font-semibold">
+              Caja cerrada
+            </span>
+          </div>
+
+          <form onSubmit={handleOpen} className="space-y-4">
+            <div className="space-y-2">
+              <label className="block text-sm uppercase tracking-wide text-[var(--text-secondary)]">
+                Cajero
+              </label>
+              <input
+                type="text"
+                value={cajero}
+                onChange={(e) => setCajero(e.target.value)}
+                placeholder="Nombre del cajero"
+                required
+                autoFocus
+                className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="block text-sm uppercase tracking-wide text-[var(--text-secondary)]">
+                  Fondo inicial $
+                </label>
+                <input
+                  type="number"
+                  value={montoInicial}
+                  onChange={(e) => setMontoInicial(e.target.value)}
+                  placeholder="0.00"
+                  required
+                  min="0"
+                  step="0.01"
+                  className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-sm uppercase tracking-wide text-[var(--text-secondary)]">
+                  Fondo inicial R$
+                </label>
+                <input
+                  type="number"
+                  value={montoInicialBrl}
+                  onChange={(e) => setMontoInicialBrl(e.target.value)}
+                  placeholder="0.00"
+                  min="0"
+                  step="0.01"
+                  className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors"
+                />
+              </div>
+            </div>
+            <button
+              type="submit"
+              disabled={opening || !cajero.trim() || !montoInicial}
+              className="w-full py-3 rounded-lg font-bold uppercase tracking-wide transition-all neon-outline-cyan neon-text-cyan hover:bg-[var(--neon-cyan)]/10 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {opening ? "Abriendo..." : "Abrir turno"}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* ──────── ABIERTA ──────── */}
+      {pageState === "abierta" && session && (
+        <div className="space-y-4">
+          <div className="data-card bg-[var(--carbon-gray)] border border-[var(--slate-gray)] rounded-xl p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="w-3 h-3 rounded-full bg-green-400 inline-block animate-pulse" />
+                <span className="neon-text-cyan uppercase tracking-wide font-bold text-sm">
+                  Turno activo
+                </span>
+              </div>
+              <span className="text-xs text-[var(--text-secondary)]">
+                Totales se actualizan cada 30s
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-[var(--text-secondary)]">Cajero</p>
+                <p className="font-semibold text-[var(--text-primary)]">{session.cajero}</p>
+              </div>
+              <div>
+                <p className="text-[var(--text-secondary)]">Apertura</p>
+                <p className="font-semibold text-[var(--text-primary)]">
+                  {fmtDate(session.apertura_at)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[var(--text-secondary)]">Fondo inicial</p>
+                <p className="font-semibold text-[var(--text-primary)]">
+                  $ {fmt(session.monto_inicial)}
+                  {session.monto_inicial_brl > 0 && (
+                    <span className="ml-2 text-[var(--text-secondary)]">
+                      · R$ {fmt(session.monto_inicial_brl)}
+                    </span>
+                  )}
+                </p>
+              </div>
+              <div>
+                <p className="text-[var(--text-secondary)]">Ventas</p>
+                <p className="font-semibold text-[var(--text-primary)]">
+                  {totals?.cantidad_ventas ?? 0}
+                </p>
+              </div>
+            </div>
+
+            {totals && (
+              <div className="border-t border-[var(--slate-gray)] pt-4 space-y-2 text-sm">
+                <div className="flex justify-between items-center">
+                  <span className="text-[var(--text-secondary)]">Total ventas</span>
+                  <span className="font-bold text-lg neon-text-cyan">
+                    $ {fmt(totals.total_ventas)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-[var(--text-secondary)]">
+                  <span>Efectivo UYU</span>
+                  <span>$ {fmt(totals.total_efectivo_uyu)}</span>
+                </div>
+                <div className="flex justify-between text-[var(--text-secondary)]">
+                  <span>Efectivo BRL (neto)</span>
+                  <span>R$ {fmt(totals.total_efectivo_brl)}</span>
+                </div>
+                <div className="flex justify-between text-[var(--text-secondary)]">
+                  <span>Digital / transferencia</span>
+                  <span>$ {fmt(totals.total_digital)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={() => {
+              setCerradoPor(session.cajero);
+              setPageState("cerrando");
+            }}
+            className="w-full py-3 rounded-lg font-bold uppercase tracking-wide transition-all border border-[var(--error)] text-[var(--error)] hover:bg-[rgba(255,59,59,0.08)]"
+          >
+            Cerrar turno
+          </button>
+        </div>
+      )}
+
+      {/* ──────── CERRANDO ──────── */}
+      {pageState === "cerrando" && session && totals && (
+        <div className="space-y-4">
+          {/* Resumen */}
+          <div className="data-card bg-[var(--carbon-gray)] border border-[var(--slate-gray)] rounded-xl p-6 space-y-4">
+            <h2 className="text-sm uppercase tracking-wide text-[var(--text-secondary)] font-semibold">
+              Resumen del turno
+            </h2>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-[var(--text-secondary)]">Cajero</p>
+                <p className="font-semibold">{session.cajero}</p>
+              </div>
+              <div>
+                <p className="text-[var(--text-secondary)]">Apertura</p>
+                <p className="font-semibold">{fmtDate(session.apertura_at)}</p>
+              </div>
+              <div>
+                <p className="text-[var(--text-secondary)]">Fondo inicial</p>
+                <p className="font-semibold">
+                  $ {fmt(session.monto_inicial)}
+                  {session.monto_inicial_brl > 0 && (
+                    <span className="ml-2 text-[var(--text-secondary)]">
+                      · R$ {fmt(session.monto_inicial_brl)}
+                    </span>
+                  )}
+                </p>
+              </div>
+              <div>
+                <p className="text-[var(--text-secondary)]">Ventas realizadas</p>
+                <p className="font-semibold">{totals.cantidad_ventas}</p>
+              </div>
+            </div>
+
+            <div className="border-t border-[var(--slate-gray)] pt-3 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-[var(--text-secondary)]">Total ventas</span>
+                <span className="font-bold neon-text-cyan">$ {fmt(totals.total_ventas)}</span>
+              </div>
+              <div className="flex justify-between text-[var(--text-secondary)]">
+                <span>Efectivo UYU</span>
+                <span>$ {fmt(totals.total_efectivo_uyu)}</span>
+              </div>
+              <div className="flex justify-between text-[var(--text-secondary)]">
+                <span>Efectivo BRL (neto)</span>
+                <span>R$ {fmt(totals.total_efectivo_brl)}</span>
+              </div>
+              <div className="flex justify-between text-[var(--text-secondary)]">
+                <span>Digital / transferencia</span>
+                <span>$ {fmt(totals.total_digital)}</span>
+              </div>
+              <div className="flex justify-between border-t border-[var(--slate-gray)] pt-2 font-semibold">
+                <span className="text-[var(--text-secondary)]">Efectivo total en caja $</span>
+                <span>$ {fmt(session.monto_inicial + totals.total_efectivo_uyu)}</span>
+              </div>
+              <div className="flex justify-between font-semibold">
+                <span className="text-[var(--text-secondary)]">Efectivo total en caja R$</span>
+                <span>R$ {fmt(session.monto_inicial_brl + totals.total_efectivo_brl)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Formulario de cierre */}
+          <div className="data-card bg-[var(--carbon-gray)] border border-[var(--slate-gray)] rounded-xl p-6">
+            <form onSubmit={handleClose} className="space-y-4">
+              <div className="space-y-2">
+                <label className="block text-sm uppercase tracking-wide text-[var(--text-secondary)]">
+                  Cerrado por
+                </label>
+                <input
+                  type="text"
+                  value={cerradoPor}
+                  onChange={(e) => setCerradoPor(e.target.value)}
+                  placeholder="Nombre de quien cierra"
+                  required
+                  autoFocus
+                  className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-sm uppercase tracking-wide text-[var(--text-secondary)]">
+                  Notas (opcional)
+                </label>
+                <textarea
+                  value={notas}
+                  onChange={(e) => setNotas(e.target.value)}
+                  placeholder="Observaciones del cierre..."
+                  rows={3}
+                  className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors resize-none"
+                />
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setPageState("abierta")}
+                  className="flex-1 py-3 rounded-lg font-bold uppercase tracking-wide border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)] transition-all"
+                >
+                  Volver
+                </button>
+                <button
+                  type="submit"
+                  disabled={closing || !cerradoPor.trim()}
+                  className="flex-1 py-3 rounded-lg font-bold uppercase tracking-wide transition-all border border-[var(--error)] text-[var(--error)] hover:bg-[rgba(255,59,59,0.08)] disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {closing ? "Cerrando..." : "Confirmar cierre"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

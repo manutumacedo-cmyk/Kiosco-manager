@@ -44,6 +44,13 @@ const MENU_CARDS: MenuCard[] = [
     icon: "📋",
     color: "cyan",
   },
+  {
+    href: "/caja",
+    title: "Caja",
+    description: "Apertura y cierre de turno",
+    icon: "💰",
+    color: "magenta",
+  },
 ];
 
 export default function Home() {

@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS cash_sessions (
   cajero              TEXT          NOT NULL,
   apertura_at         TIMESTAMPTZ   NOT NULL DEFAULT now(),
   monto_inicial       NUMERIC(10,2) NOT NULL DEFAULT 0,   -- fondo inicial, en UYU
+  monto_inicial_brl   NUMERIC(10,2) NOT NULL DEFAULT 0,  -- fondo inicial, en BRL
   estado              TEXT          NOT NULL DEFAULT 'abierta'
                                     CHECK (estado IN ('abierta', 'cerrada')),
   cerrado_por         TEXT,                   -- quién cierra (puede diferir del cajero)
