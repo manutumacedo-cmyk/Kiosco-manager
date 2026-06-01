@@ -31,6 +31,9 @@ export default function NuevaVentaPage() {
   const [customAmount, setCustomAmount] = useState("");
   const [customCurrency, setCustomCurrency] = useState<Currency>("UYU");
 
+  // Modal de cobro (M10)
+  const [showCobrarModal, setShowCobrarModal] = useState(false);
+
   // Shot Extra (monto fijo configurable)
   const SHOT_EXTRA_AMOUNT = 50; // UYU
   const MONSTER_PRICE = 100.0; // UYU
@@ -332,223 +335,296 @@ export default function NuevaVentaPage() {
   const billetsUYU = [50, 100, 200, 500, 1000, 2000];
   const billetsBRL = [5, 10, 20, 50, 100, 200];
 
+  // Tab activo: repropósita categoriaFilter; "" equivale a primera categoría
+  const activeTab = categoriaFilter || CATEGORIES[0];
+  // Grilla: todos los productos de la categoría activa (sin límite de 25);
+  // si hay búsqueda activa, usa filtered con sus resultados de texto
+  const gridProducts = q.trim()
+    ? filtered
+    : products.filter((p) => p.activo && p.stock > 0 && p.categoria === activeTab);
+
   return (
-    <div className="min-h-screen bg-[var(--deep-dark)] p-4 space-y-4">
-      {/* Header Compacto */}
-      <div className="flex items-center justify-between">
+    <div className="h-screen flex flex-col bg-[var(--deep-dark)] overflow-hidden">
+
+      {/* ── HEADER ── */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--slate-gray)] flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-full neon-border-magenta animate-pulse-magenta" />
-          <h1 className="text-2xl font-bold neon-text-magenta">PUNTO DE VENTA</h1>
-          <div className="text-xl">🛒</div>
+          <div className="h-7 w-7 rounded-full neon-border-magenta animate-pulse-magenta" />
+          <h1 className="text-xl font-bold neon-text-magenta tracking-wide">PUNTO DE VENTA</h1>
         </div>
-        <div className="text-sm text-[var(--text-muted)] font-mono">
-          Tipo de cambio: 1 BRL = ${exchangeRate.toFixed(2)} UYU
+        <input
+          className="cyber-input text-sm w-56"
+          placeholder="Buscar producto..."
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+        <div className="text-xs text-[var(--text-muted)] font-mono">
+          1 BRL = ${exchangeRate.toFixed(2)} UYU
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* PANEL IZQUIERDO: Búsqueda + Carrito (2/3 del ancho) */}
-        <div className="lg:col-span-2 space-y-4">
-          {/* Búsqueda de productos */}
-          <div className="data-card neon-outline-cyan p-4">
-            <div className="text-[var(--neon-cyan)] font-bold text-sm uppercase tracking-wide mb-3">
-              🔍 Buscar producto
-            </div>
+      {/* ── TABS DE CATEGORÍA ── */}
+      <div className="flex gap-1 px-4 pt-2 border-b border-[var(--slate-gray)] flex-shrink-0">
+        {([...CATEGORIES, "Combos"] as string[]).map((cat) => (
+          <button
+            key={cat}
+            onClick={() => { setCategoriaFilter(cat); setQ(""); }}
+            className={`px-5 py-2 rounded-t-lg font-bold text-sm uppercase tracking-wide transition-all border-t border-l border-r ${
+              activeTab === cat
+                ? "border-[var(--neon-cyan)] text-[var(--neon-cyan)] bg-[var(--cyan-glow)]"
+                : "border-[var(--slate-gray)] text-[var(--text-secondary)] hover:text-[var(--neon-cyan)] hover:border-[var(--neon-cyan)]"
+            }`}
+          >
+            {cat}
+          </button>
+        ))}
+      </div>
 
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              <input
-                className="cyber-input text-sm"
-                placeholder="Nombre..."
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-              />
-              <select
-                className="cyber-input text-sm"
-                value={categoriaFilter}
-                onChange={(e) => setCategoriaFilter(e.target.value)}
-              >
-                <option value="">Todas</option>
-                {CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
-            </div>
+      {/* ── CUERPO: Grilla + Carrito ── */}
+      <div className="flex flex-1 overflow-hidden">
 
-            <div className="border border-[var(--slate-gray)] rounded-lg max-h-40 overflow-auto bg-[var(--carbon-gray)]">
-              {filtered.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => add(p)}
-                  className="w-full text-left px-3 py-2 text-sm border-b border-[var(--slate-gray)] hover:bg-[var(--cyan-glow)] hover:border-[var(--neon-cyan)] transition-all duration-200"
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="font-semibold text-[var(--text-primary)]">{p.nombre}</span>
-                    <span className="font-mono font-bold text-[var(--neon-cyan)] text-xs">
-                      ${Number(p.precio).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="text-[10px] text-[var(--text-muted)] font-mono">Stock: {p.stock}</div>
-                </button>
-              ))}
-
-              {filtered.length === 0 && (
-                <div className="p-3 text-xs text-[var(--text-muted)] text-center font-mono">
-                  Sin resultados.
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Combos disponibles */}
-          {combos.length > 0 && (
-            <div className="data-card neon-outline-magenta p-4">
-              <div className="text-[var(--neon-magenta)] font-bold text-sm uppercase tracking-wide mb-3">
-                🎁 Combos disponibles
+        {/* IZQUIERDA – Grilla de productos / combos */}
+        <div className="flex-1 overflow-auto p-4">
+          {activeTab === "Combos" ? (
+            combos.length === 0 ? (
+              <div className="text-center py-16 text-[var(--text-muted)] font-mono text-sm">
+                No hay combos activos
               </div>
-              <div className="grid grid-cols-2 gap-2">
+            ) : (
+              <div className="grid grid-cols-3 gap-3">
                 {combos.map((combo) => (
                   <button
                     key={combo.id}
                     onClick={() => addCombo(combo)}
-                    className="text-left p-2 border border-[var(--slate-gray)] rounded-lg hover:border-[var(--neon-magenta)] hover:bg-[var(--magenta-glow)] transition-all duration-200"
+                    className="flex flex-col items-start p-4 border border-[var(--slate-gray)] rounded-xl hover:border-[var(--neon-magenta)] hover:bg-[var(--magenta-glow)] active:scale-95 transition-all duration-150 text-left min-h-[110px]"
                   >
-                    <div className="font-semibold text-[var(--text-primary)] text-sm">{combo.nombre}</div>
-                    <div className="text-[10px] text-[var(--text-muted)] mt-1">
-                      {combo.items.map((it) => `${it.cantidad}x ${it.nombre}`).join(", ")}
+                    <div className="font-bold text-[var(--text-primary)] text-sm leading-tight mb-1 truncate w-full">
+                      {combo.nombre}
                     </div>
-                    <div className="font-mono font-bold text-[var(--neon-magenta)] text-xs mt-1">
+                    <div className="text-[10px] text-[var(--text-muted)] leading-tight flex-1">
+                      {combo.items.map((it) => `${it.cantidad}× ${it.nombre}`).join(" · ")}
+                    </div>
+                    <div className="font-mono font-bold text-[var(--neon-magenta)] text-lg mt-2">
                       ${Number(combo.precio).toFixed(2)}
                     </div>
                   </button>
                 ))}
               </div>
+            )
+          ) : gridProducts.length === 0 ? (
+            <div className="text-center py-16 text-[var(--text-muted)] font-mono text-sm">
+              {q.trim() ? "Sin resultados para esa búsqueda" : "Sin productos en esta categoría"}
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-3">
+              {gridProducts.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => add(p)}
+                  className="flex flex-col items-start p-4 border border-[var(--slate-gray)] rounded-xl hover:border-[var(--neon-cyan)] hover:bg-[var(--cyan-glow)] active:scale-95 transition-all duration-150 text-left min-h-[100px]"
+                >
+                  <div className="font-bold text-[var(--text-primary)] text-sm leading-tight truncate w-full">
+                    {p.nombre}
+                  </div>
+                  <div className="font-mono font-bold text-[var(--neon-cyan)] text-2xl mt-auto">
+                    ${Number(p.precio).toFixed(2)}
+                  </div>
+                  <div className="text-[10px] text-[var(--text-muted)] font-mono">
+                    Stock: {p.stock}
+                  </div>
+                </button>
+              ))}
             </div>
           )}
+        </div>
 
-          {/* Carrito */}
-          <div className="data-card neon-outline-magenta p-4">
-            <div className="text-[var(--neon-magenta)] font-bold text-sm uppercase tracking-wide mb-3">
-              🛒 Carrito ({cart.length})
-            </div>
+        {/* DERECHA – Carrito */}
+        <div className="w-[360px] flex flex-col border-l border-[var(--slate-gray)] flex-shrink-0">
 
+          {/* Encabezado carrito */}
+          <div className="px-4 py-3 border-b border-[var(--slate-gray)] flex items-center justify-between flex-shrink-0">
+            <span className="text-[var(--neon-magenta)] font-bold text-sm uppercase tracking-wide">
+              Carrito ({cart.length})
+            </span>
+            {cart.length > 0 && (
+              <button
+                onClick={() => setCart([])}
+                className="text-[10px] px-2 py-1 rounded border border-transparent text-[var(--text-muted)] hover:border-[var(--error)] hover:text-[var(--error)] transition-all"
+              >
+                Limpiar
+              </button>
+            )}
+          </div>
+
+          {/* Ítems */}
+          <div className="flex-1 overflow-auto p-3 space-y-2">
             {cart.length === 0 ? (
-              <div className="text-center py-6 text-[var(--text-muted)] font-mono text-sm">
-                Agregá productos
+              <div className="text-center py-16 text-[var(--text-muted)] font-mono text-sm leading-relaxed">
+                Tocá un producto<br />para agregarlo
               </div>
             ) : (
-              <div className="space-y-2 max-h-80 overflow-auto">
-                {cart.map((it, idx) => (
+              cart.map((it, idx) => {
+                const subtotal =
+                  it.cantidad * it.precio_unitario +
+                  (it.includeMonster && it.categoria === "Vasos" ? it.cantidad * MONSTER_PRICE : 0) +
+                  (it.shotExtra || 0);
+                const esVaso = it.categoria === "Vasos" && !it.isCombo;
+
+                return (
                   <div
                     key={`${it.product_id}-${it.isCombo}-${idx}`}
-                    className="border border-[var(--slate-gray)] rounded-lg p-2 bg-[var(--carbon-gray)] hover:border-[var(--neon-magenta)] transition-all duration-200"
+                    className="border border-[var(--slate-gray)] rounded-xl p-3 bg-[var(--carbon-gray)]"
                   >
-                    <div className="flex justify-between items-center gap-2 mb-2">
-                      <div className="font-semibold text-[var(--text-primary)] text-sm">
-                        {it.nombre} {it.isCombo && <span className="text-[var(--neon-magenta)]">🎁</span>}
-                      </div>
+                    {/* Fila 1: nombre + quitar */}
+                    <div className="flex justify-between items-start gap-2 mb-2">
+                      <span className="font-semibold text-[var(--text-primary)] text-sm leading-tight truncate">
+                        {it.nombre}{it.isCombo ? " 🎁" : ""}
+                      </span>
                       <button
                         onClick={() => remove(it.product_id, it.isCombo)}
-                        className="text-[10px] px-2 py-1 rounded border border-[var(--error)] text-[var(--error)] hover:bg-[var(--error)] hover:text-[var(--dark-bg)] transition-all duration-200"
+                        className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-[var(--error)] text-[var(--error)] hover:bg-[var(--error)] hover:text-white transition-all leading-none"
                       >
                         ✕
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 mb-2">
-                      <div>
-                        <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Cant.</div>
-                        <input
-                          className="cyber-input w-full text-xs p-1"
-                          type="number"
-                          value={it.cantidad}
-                          onChange={(e) => setQty(it.product_id, Number(e.target.value), it.isCombo)}
-                        />
-                      </div>
-
-                      <div className="col-span-2">
-                        <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Precio</div>
-                        <input
-                          className="cyber-input w-full text-xs p-1"
-                          type="number"
-                          step="0.01"
-                          value={it.precio_unitario}
-                          onChange={(e) => setPrice(it.product_id, Number(e.target.value), it.isCombo)}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Botones adicionales */}
-                    <div className="flex gap-2 mb-2">
-                      {/* Monster toggle (solo para Vasos) */}
-                      {it.categoria === "Vasos" && !it.isCombo && (
-                        <button
-                          onClick={() => toggleMonster(it.product_id)}
-                          className={`flex-1 text-[10px] px-2 py-1 rounded border transition-all duration-200 ${
-                            it.includeMonster
-                              ? "bg-[var(--magenta-glow)] border-[var(--neon-magenta)] text-[var(--neon-magenta)]"
-                              : "border-[var(--slate-gray)] text-[var(--text-secondary)]"
-                          }`}
-                        >
-                          🥤 Monster {it.includeMonster && `+$${MONSTER_PRICE}`}
-                        </button>
-                      )}
-
-                      {/* Shot Extra */}
+                    {/* Fila 2: cantidad +/- · precio unitario · subtotal */}
+                    <div className="flex items-center gap-1">
                       <button
-                        onClick={() => toggleShotExtra(it.product_id, it.isCombo)}
-                        className={`flex-1 text-[10px] px-2 py-1 rounded border font-bold transition-all duration-200 ${
-                          it.shotExtra
-                            ? "bg-[var(--cyan-glow)] border-[var(--neon-cyan)] text-[var(--neon-cyan)]"
-                            : "border-[var(--slate-gray)] text-[var(--text-secondary)]"
-                        }`}
+                        onClick={() => setQty(it.product_id, it.cantidad - 1, it.isCombo)}
+                        className="w-7 h-7 rounded border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)] font-bold text-base leading-none transition-all"
                       >
-                        🔥 Shot Extra {it.shotExtra ? `+$${SHOT_EXTRA_AMOUNT}` : ""}
+                        −
                       </button>
-                    </div>
-
-                    <div className="pt-2 border-t border-[var(--slate-gray)] text-right">
-                      <span className="text-[var(--text-muted)] text-[10px] uppercase mr-2">Subtotal:</span>
-                      <span className="text-sm font-bold text-[var(--neon-magenta)] font-mono">
-                        $
-                        {(
-                          it.cantidad * it.precio_unitario +
-                          (it.includeMonster && it.categoria === "Vasos" ? it.cantidad * MONSTER_PRICE : 0) +
-                          (it.shotExtra || 0)
-                        ).toFixed(2)}
+                      <span className="w-7 text-center font-mono font-bold text-[var(--text-primary)] text-sm">
+                        {it.cantidad}
+                      </span>
+                      <button
+                        onClick={() => setQty(it.product_id, it.cantidad + 1, it.isCombo)}
+                        className="w-7 h-7 rounded border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)] font-bold text-base leading-none transition-all"
+                      >
+                        +
+                      </button>
+                      <span className="text-[var(--text-muted)] text-[11px] font-mono ml-1 flex-1">
+                        × ${it.precio_unitario}
+                      </span>
+                      <span className="font-bold font-mono text-[var(--neon-magenta)] text-sm">
+                        ${subtotal.toFixed(2)}
                       </span>
                     </div>
+
+                    {/* Fila 3: extras Monster + Shot Extra (solo Vasos) */}
+                    {esVaso && (
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          onClick={() => toggleMonster(it.product_id)}
+                          className={`flex-1 text-[11px] py-1.5 rounded-lg border font-semibold transition-all ${
+                            it.includeMonster
+                              ? "bg-[var(--magenta-glow)] border-[var(--neon-magenta)] text-[var(--neon-magenta)]"
+                              : "border-[var(--slate-gray)] text-[var(--text-muted)] hover:border-[var(--neon-magenta)]"
+                          }`}
+                        >
+                          Monster{it.includeMonster ? ` +$${MONSTER_PRICE}` : ""}
+                        </button>
+                        <button
+                          onClick={() => toggleShotExtra(it.product_id, false)}
+                          className={`flex-1 text-[11px] py-1.5 rounded-lg border font-semibold transition-all ${
+                            it.shotExtra
+                              ? "bg-[var(--cyan-glow)] border-[var(--neon-cyan)] text-[var(--neon-cyan)]"
+                              : "border-[var(--slate-gray)] text-[var(--text-muted)] hover:border-[var(--neon-cyan)]"
+                          }`}
+                        >
+                          Shot Extra{it.shotExtra ? ` +$${SHOT_EXTRA_AMOUNT}` : ""}
+                        </button>
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
+                );
+              })
             )}
           </div>
-        </div>
 
-        {/* PANEL DERECHO: Calculadora + Total (1/3 del ancho) */}
-        <div className="space-y-4">
-          {/* Total GIGANTE */}
-          <div className="data-card neon-outline-cyan p-4 text-center bg-[var(--cyan-glow)]">
-            <div className="text-[var(--text-muted)] text-xs uppercase tracking-wide mb-2">Total a Pagar</div>
-            <div className="text-5xl font-bold text-[var(--neon-cyan)] font-mono animate-glow">
-              ${total.toFixed(2)}
+          {/* Total + COBRAR */}
+          <div className="border-t border-[var(--slate-gray)] p-4 space-y-3 flex-shrink-0">
+            <div className="flex justify-between items-baseline">
+              <span className="text-[var(--text-muted)] text-xs uppercase tracking-wide">Total</span>
+              <span className="text-3xl font-bold font-mono neon-text-cyan">
+                ${total.toFixed(2)}
+              </span>
             </div>
-            <div className="text-[var(--text-secondary)] text-sm mt-2 font-mono">UYU</div>
+            <button
+              onClick={() => setShowCobrarModal(true)}
+              disabled={cart.length === 0}
+              className="w-full py-4 text-lg font-bold uppercase tracking-widest rounded-xl border-2 border-[var(--neon-magenta)] text-[var(--neon-magenta)] bg-[var(--magenta-glow)] hover:bg-[var(--neon-magenta)] hover:text-[var(--deep-dark)] disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150"
+            >
+              COBRAR →
+            </button>
           </div>
+        </div>
+      </div>
 
-          {/* Calculadora de Cambio */}
-          {!showCalculator ? (
-            <>
-              {/* Monto Personalizado */}
-              <div className="data-card neon-outline-cyan p-4">
-                <div className="text-[var(--neon-cyan)] font-bold text-xs uppercase tracking-wide mb-3">
-                  ✍️ Monto Personalizado
+      {/* ── MODAL DE COBRO ── */}
+      {showCobrarModal && (
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+          <div className="bg-[var(--deep-dark)] border border-[var(--neon-magenta)] rounded-2xl p-6 w-full max-w-md shadow-2xl space-y-4 max-h-[90vh] overflow-auto">
+
+            {/* Cabecera modal */}
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-bold neon-text-magenta uppercase tracking-widest">Cobrar</h2>
+              <button
+                onClick={() => { setShowCobrarModal(false); setShowCalculator(false); setPaidAmount(0); }}
+                className="text-[var(--text-muted)] hover:text-[var(--error)] text-2xl leading-none transition-all"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Total */}
+            <div className="text-center py-3 rounded-xl bg-[var(--cyan-glow)] border border-[var(--neon-cyan)]">
+              <div className="text-[var(--text-muted)] text-xs uppercase tracking-wide">Total a cobrar</div>
+              <div className="text-4xl font-bold font-mono neon-text-cyan mt-1">
+                ${total.toFixed(2)} <span className="text-base font-normal">UYU</span>
+              </div>
+            </div>
+
+            {!showCalculator ? (
+              <div className="space-y-4">
+                {/* Billetes UYU */}
+                <div>
+                  <div className="text-[var(--text-muted)] text-[11px] uppercase tracking-wide mb-2">Pesos UYU</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {billetsUYU.map((amount) => (
+                      <button
+                        key={amount}
+                        onClick={() => handlePaymentButton(amount, "UYU")}
+                        className="py-3 text-sm font-bold rounded-lg border border-[var(--neon-magenta)] text-[var(--neon-magenta)] hover:bg-[var(--neon-magenta)] hover:text-[var(--deep-dark)] transition-all"
+                      >
+                        ${amount}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
+                {/* Billetes BRL */}
+                <div>
+                  <div className="text-[var(--text-muted)] text-[11px] uppercase tracking-wide mb-2">Reales BRL</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {billetsBRL.map((amount) => (
+                      <button
+                        key={amount}
+                        onClick={() => handlePaymentButton(amount, "BRL")}
+                        className="py-3 text-sm font-bold rounded-lg border border-[var(--neon-cyan)] text-[var(--neon-cyan)] hover:bg-[var(--neon-cyan)] hover:text-[var(--deep-dark)] transition-all"
+                      >
+                        R${amount}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Monto personalizado */}
                 <div className="flex gap-2 items-end">
                   <div className="flex-1">
-                    <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Monto</div>
+                    <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Monto personalizado</div>
                     <input
                       className="cyber-input w-full text-sm font-mono"
                       type="number"
@@ -556,154 +632,106 @@ export default function NuevaVentaPage() {
                       min="0"
                       value={customAmount}
                       onChange={(e) => setCustomAmount(e.target.value)}
-                      placeholder="Ej: 175.50"
-                      disabled={cart.length === 0}
+                      placeholder="175.50"
                     />
                   </div>
-
-                  <div className="w-24">
+                  <div className="w-20">
                     <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Moneda</div>
                     <select
                       className="cyber-input w-full text-xs"
                       value={customCurrency}
                       onChange={(e) => setCustomCurrency(e.target.value as Currency)}
-                      disabled={cart.length === 0}
                     >
-                      <option value="UYU">UYU $</option>
-                      <option value="BRL">BRL R$</option>
+                      <option value="UYU">UYU</option>
+                      <option value="BRL">BRL</option>
                     </select>
                   </div>
-
                   <button
                     onClick={handleCustomPayment}
-                    disabled={cart.length === 0 || !customAmount || Number(customAmount) <= 0}
-                    className="cyber-button-cyan py-2 px-4 text-xs font-bold whitespace-nowrap"
+                    disabled={!customAmount || Number(customAmount) <= 0}
+                    className="py-2 px-3 text-xs font-bold rounded-lg border border-[var(--neon-cyan)] text-[var(--neon-cyan)] hover:bg-[var(--neon-cyan)] hover:text-[var(--deep-dark)] disabled:opacity-40 transition-all whitespace-nowrap"
                   >
                     Calcular
                   </button>
                 </div>
               </div>
-
-              {/* Botones de billetes UYU */}
-              <div className="data-card neon-outline-magenta p-4">
-                <div className="text-[var(--neon-magenta)] font-bold text-xs uppercase tracking-wide mb-3">
-                  💵 Pesos Uruguayos (UYU)
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {billetsUYU.map((amount) => (
-                    <button
-                      key={amount}
-                      onClick={() => handlePaymentButton(amount, "UYU")}
-                      className="cyber-button-magenta py-3 text-sm font-bold"
-                      disabled={cart.length === 0}
-                    >
-                      ${amount}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Botones de billetes BRL */}
-              <div className="data-card neon-outline-cyan p-4">
-                <div className="text-[var(--neon-cyan)] font-bold text-xs uppercase tracking-wide mb-3">
-                  💶 Reales Brasileños (BRL)
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {billetsBRL.map((amount) => (
-                    <button
-                      key={amount}
-                      onClick={() => handlePaymentButton(amount, "BRL")}
-                      className="cyber-button py-3 text-sm font-bold"
-                      disabled={cart.length === 0}
-                    >
-                      R${amount}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </>
-          ) : (
-            /* Visualización del CAMBIO */
-            <div className="data-card neon-outline-magenta p-4 bg-[var(--magenta-glow)]">
-              <div className="text-center space-y-3">
-                <div>
-                  <div className="text-[var(--text-muted)] text-xs uppercase">Total en Pesos</div>
-                  <div className="text-2xl font-bold text-[var(--neon-cyan)] font-mono">
-                    ${changeCalculation.totalUYU.toFixed(2)} UYU
-                  </div>
-                </div>
-
+            ) : (
+              /* Vuelto */
+              <div className="border border-[var(--neon-magenta)] rounded-xl p-5 bg-[var(--magenta-glow)] text-center space-y-3">
                 <div>
                   <div className="text-[var(--text-muted)] text-xs uppercase">Pagó con</div>
-                  <div className="text-xl font-bold text-[var(--text-primary)] font-mono">
-                    {paidCurrency === "UYU" ? (
-                      <>${paidAmount} UYU</>
-                    ) : (
-                      <>
-                        R${paidAmount} BRL
-                        <div className="text-xs text-[var(--text-secondary)] mt-1">
-                          (≈ ${changeCalculation.paidUYU.toFixed(2)} UYU)
-                        </div>
-                      </>
-                    )}
+                  <div className="text-xl font-bold font-mono text-[var(--text-primary)] mt-1">
+                    {paidCurrency === "UYU" ? `$${paidAmount} UYU` : `R$${paidAmount} BRL`}
                   </div>
-                </div>
-
-                <div className="pt-3 border-t-2 border-[var(--neon-magenta)]">
-                  <div className="text-[var(--text-muted)] text-xs uppercase">Cambio a Devolver</div>
-                  <div
-                    className={`text-4xl font-bold font-mono animate-pulse ${
-                      changeCalculation.changeUYU >= 0 ? "text-[var(--neon-magenta)]" : "text-[var(--error)]"
-                    }`}
-                  >
-                    ${Math.abs(changeCalculation.changeUYU).toFixed(2)} UYU
-                  </div>
-                  {changeCalculation.changeUYU < 0 && (
-                    <div className="text-xs text-[var(--error)] mt-2">⚠️ Falta dinero</div>
+                  {paidCurrency === "BRL" && (
+                    <div className="text-xs text-[var(--text-secondary)] mt-0.5">
+                      ≈ ${changeCalculation.paidUYU.toFixed(2)} UYU
+                    </div>
                   )}
                 </div>
-
+                <div className="pt-3 border-t border-[var(--neon-magenta)]">
+                  <div className="text-[var(--text-muted)] text-xs uppercase">Cambio a devolver</div>
+                  <div className={`text-5xl font-bold font-mono mt-1 ${
+                    changeCalculation.changeUYU >= 0 ? "neon-text-magenta" : "text-[var(--error)]"
+                  }`}>
+                    ${Math.abs(changeCalculation.changeUYU).toFixed(2)}
+                    <span className="text-lg font-normal ml-1">UYU</span>
+                  </div>
+                  {changeCalculation.changeUYU < 0 && (
+                    <div className="text-xs text-[var(--error)] mt-1">Falta dinero</div>
+                  )}
+                </div>
                 <button
                   onClick={() => setShowCalculator(false)}
-                  className="cyber-button w-full py-2 text-xs"
+                  className="text-xs py-2 px-4 rounded-lg border border-[var(--slate-gray)] text-[var(--text-muted)] hover:border-[var(--text-secondary)] transition-all"
                 >
                   ← Cambiar billete
                 </button>
               </div>
+            )}
+
+            {/* Método + nota + confirmar */}
+            <div className="border-t border-[var(--slate-gray)] pt-4 space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Método de pago</div>
+                  <select
+                    className="cyber-input text-sm w-full"
+                    value={metodo}
+                    onChange={(e) => setMetodo(e.target.value)}
+                  >
+                    <option value="efectivo">Efectivo</option>
+                    <option value="debito">Débito</option>
+                    <option value="credito">Crédito</option>
+                    <option value="transferencia">Transferencia</option>
+                    <option value="mercadopago">MercadoPago</option>
+                  </select>
+                </div>
+                <div>
+                  <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Nota (opcional)</div>
+                  <input
+                    className="cyber-input text-sm w-full"
+                    placeholder="..."
+                    value={nota}
+                    onChange={(e) => setNota(e.target.value)}
+                  />
+                </div>
+              </div>
+              <button
+                onClick={async () => {
+                  await guardarVenta();
+                  setShowCobrarModal(false);
+                }}
+                disabled={saving}
+                className="w-full py-4 text-base font-bold uppercase tracking-widest rounded-xl border-2 border-[var(--neon-magenta)] text-[var(--neon-magenta)] bg-[var(--magenta-glow)] hover:bg-[var(--neon-magenta)] hover:text-[var(--deep-dark)] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150"
+              >
+                {saving ? "PROCESANDO..." : "CONFIRMAR VENTA"}
+              </button>
             </div>
-          )}
-
-          {/* Método de pago y Nota */}
-          <div className="data-card neon-outline-cyan p-4 space-y-3">
-            <select
-              className="cyber-input text-sm w-full"
-              value={metodo}
-              onChange={(e) => setMetodo(e.target.value)}
-            >
-              <option value="efectivo">Efectivo</option>
-              <option value="debito">Débito</option>
-              <option value="credito">Crédito</option>
-              <option value="transferencia">Transferencia</option>
-              <option value="mercadopago">MercadoPago</option>
-            </select>
-
-            <input
-              className="cyber-input text-sm w-full"
-              placeholder="Nota (opcional)"
-              value={nota}
-              onChange={(e) => setNota(e.target.value)}
-            />
-
-            <button
-              onClick={guardarVenta}
-              disabled={saving || cart.length === 0}
-              className="cyber-button-magenta w-full py-3 text-sm font-bold"
-            >
-              {saving ? "PROCESANDO..." : "💾 GUARDAR VENTA"}
-            </button>
           </div>
         </div>
-      </div>
+      )}
+
     </div>
   );
 }
