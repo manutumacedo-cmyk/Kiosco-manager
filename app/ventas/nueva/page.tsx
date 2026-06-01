@@ -259,9 +259,31 @@ export default function NuevaVentaPage() {
           saleItems.push({
             product_id: it.product_id,
             cantidad: it.cantidad,
-            precio_unitario: it.precio_unitario + (it.shotExtra || 0),
+            precio_unitario:
+              it.precio_unitario +
+              (it.shotExtra || 0) +
+              (it.includeMonster && it.categoria === "Vasos" ? MONSTER_PRICE : 0),
             stock_actual: it.stock_actual,
           });
+
+          // Monster (B14): se cobra dentro del precio del vaso (arriba), pero su stock
+          // debe descontarse como producto aparte. Lo agregamos con precio 0 para no
+          // cobrar doble. Se identifica por nombre (match por inclusión).
+          if (it.includeMonster && it.categoria === "Vasos") {
+            const monster = products.find((p) =>
+              p.nombre.toLowerCase().includes("monster")
+            );
+            if (monster) {
+              saleItems.push({
+                product_id: monster.id,
+                cantidad: it.cantidad,
+                precio_unitario: 0,
+                stock_actual: monster.stock,
+              });
+            } else {
+              toast.warning("Monster no encontrado en productos — stock no descontado");
+            }
+          }
         }
       }
 
