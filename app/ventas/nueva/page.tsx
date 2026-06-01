@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Product, CartItem, CategoryType, ComboWithProducts } from "@/types";
 import { CATEGORIES } from "@/types";
 import { fetchActiveProducts } from "@/lib/services/products";
@@ -34,6 +34,11 @@ export default function NuevaVentaPage() {
   // Modal de cobro (M10)
   const [showCobrarModal, setShowCobrarModal] = useState(false);
 
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  // "Latest ref" pattern: siempre apunta a la versión actual de guardarVenta
+  // sin necesitar que el useEffect de atajos la liste como dependencia.
+  const guardarVentaRef = useRef(guardarVenta);
+
   // Shot Extra (monto fijo configurable)
   const SHOT_EXTRA_AMOUNT = 50; // UYU
   const MONSTER_PRICE = 100.0; // UYU
@@ -56,6 +61,73 @@ export default function NuevaVentaPage() {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Atajos de teclado — M1
+  useEffect(() => {
+    const TABS = [...CATEGORIES, "Combos"] as string[];
+
+    function onKeyDown(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement).tagName;
+      const inInput = tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA";
+
+      // Esc: siempre activo, prioridad modal > búsqueda
+      if (e.key === "Escape") {
+        if (showCobrarModal) {
+          setShowCobrarModal(false);
+          setShowCalculator(false);
+          setPaidAmount(0);
+          return;
+        }
+        if (document.activeElement === searchInputRef.current) {
+          setQ("");
+          searchInputRef.current?.blur();
+          return;
+        }
+        return;
+      }
+
+      // F1–F5: cambiar tab (activos incluso con input enfocado; e.preventDefault evita F5=refresh)
+      if (e.key === "F1" && !showCobrarModal) { e.preventDefault(); setCategoriaFilter(TABS[0]); setQ(""); return; }
+      if (e.key === "F2" && !showCobrarModal) { e.preventDefault(); setCategoriaFilter(TABS[1]); setQ(""); return; }
+      if (e.key === "F3" && !showCobrarModal) { e.preventDefault(); setCategoriaFilter(TABS[2]); setQ(""); return; }
+      if (e.key === "F4" && !showCobrarModal) { e.preventDefault(); setCategoriaFilter(TABS[3]); setQ(""); return; }
+      if (e.key === "F5" && !showCobrarModal) { e.preventDefault(); setCategoriaFilter(TABS[4]); setQ(""); return; }
+
+      // Ctrl+Enter: confirmar venta (solo dentro del modal, con Ctrl para evitar accidentes)
+      if (e.key === "Enter" && e.ctrlKey && showCobrarModal && !saving) {
+        e.preventDefault();
+        guardarVentaRef.current().then(() => setShowCobrarModal(false));
+        return;
+      }
+
+      // Los atajos restantes solo actúan fuera de inputs
+      if (inInput) return;
+
+      // /: enfocar búsqueda
+      if (e.key === "/") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+
+      // Enter: abrir modal de cobro
+      if (e.key === "Enter" && !showCobrarModal && cart.length > 0) {
+        e.preventDefault();
+        setShowCobrarModal(true);
+        return;
+      }
+
+      // Ctrl+Delete / Ctrl+Backspace: limpiar carrito
+      if ((e.key === "Delete" || e.key === "Backspace") && e.ctrlKey && cart.length > 0) {
+        e.preventDefault();
+        setCart([]);
+        return;
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [showCobrarModal, cart, saving]);
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -332,6 +404,10 @@ export default function NuevaVentaPage() {
     }
   }
 
+  // Actualizar la ref en cada render para que el useEffect de atajos
+  // siempre llame a la versión actual sin re-registrar el listener.
+  guardarVentaRef.current = guardarVenta;
+
   const billetsUYU = [50, 100, 200, 500, 1000, 2000];
   const billetsBRL = [5, 10, 20, 50, 100, 200];
 
@@ -353,6 +429,7 @@ export default function NuevaVentaPage() {
           <h1 className="text-xl font-bold neon-text-magenta tracking-wide">PUNTO DE VENTA</h1>
         </div>
         <input
+          ref={searchInputRef}
           className="cyber-input text-sm w-56"
           placeholder="Buscar producto..."
           value={q}
