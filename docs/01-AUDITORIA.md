@@ -109,6 +109,28 @@
 
 ## 🟡 MENORES / HIGIENE
 
+### B16 · Ventas anuladas contaban en los totales del dashboard 🟠 — ✅ RESUELTO (commit b0dadc6)
+- **Dónde:** [`lib/services/reports.ts`](../lib/services/reports.ts) — `fetchTodayReport`, `fetchWeeklyReport`, `fetchMonthlyReport`.
+- **Qué pasaba:** Las tres funciones consultaban `sales` **sin filtrar por `estado`**. Las ventas con
+  `estado = 'anulada'` se incluían en los totales de ingresos y ganancia limpia. Mismo problema en
+  `sale_items` y `sale_combos`: se consultaban por fecha sin verificar si la venta padre estaba activa.
+- **Impacto:** El dashboard mostraba ingresos y ganancia inflados. Al anular una venta, los totales
+  no bajaban hasta hacer un Refrescar manual, y aún así incluían la anulada.
+- **Fix:** `.eq("estado", "activa")` en las 3 queries de `sales`. Para `sale_items` y `sale_combos`,
+  join `!inner(estado)` + `.eq("sales.estado", "activa")` vía PostgREST para excluir ítems huérfanos
+  de ventas anuladas del cálculo de ganancia.
+
+### B17 · El dashboard no se actualiza automáticamente tras anular desde el historial 🟡
+- **Dónde:** [`app/reportes/ventas/page.tsx`](../app/reportes/ventas/page.tsx) — `handleCancelSale`.
+- **Qué pasa:** Al anular una venta en `/reportes/ventas`, se llama `loadSales()` que recarga el
+  historial de esa página. Pero el dashboard en `/reportes/hoy` es una ruta separada y sus datos
+  no se invalidan. El cajero necesita navegar al dashboard y pulsar "Refrescar" para ver los totales
+  actualizados.
+- **Impacto:** Bajo — son páginas separadas y el cajero que anula está en el historial, no en el
+  dashboard. Con B16 resuelto, al hacer Refrescar los totales son correctos.
+- **Fix futuro opcional:** estado global (React Context / Zustand) o Supabase Realtime para propagar
+  la invalidación entre rutas. No urgente.
+
 ### B15 · Costos en reportes históricos usan precio live, no el del momento de la venta 🟡
 - **Dónde:** [`lib/services/reports.ts`](../lib/services/reports.ts) · `calcularMetricas` en
   [`app/reportes/hoy/page.tsx`](../app/reportes/hoy/page.tsx#L83).

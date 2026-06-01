@@ -69,19 +69,31 @@ una venta sin tocar el mouse. El camino de venta ya no dispara queries extras po
 
 ---
 
-## FASE 3 · Turno / Sesión de caja 🔴
+## FASE 3 · Turno / Sesión de caja 🔴 — [~] EN PROGRESO
 *Objetivo: operar por turnos reales con apertura/cierre manual, aunque crucen la medianoche.*
 
 - [x] **3.0** **Rediseñar pantalla de ventas**: grid de botones por categoría, panel derecho como
       modal de cobro. (M10) ✅
-- [ ] **3.1** Modelo de **sesión de caja**: tabla `cash_sessions` con
-      `cajero`, `apertura_at`, `monto_inicial`, `cierre_at`, `estado` (abierta/cerrada).
-- [ ] **3.2** Pantalla **Abrir caja** (elegir/escribir cajero + monto inicial) y **Cerrar caja**
-      (totales por método y por moneda, diferencia vs efectivo contado).
-- [ ] **3.3** Asociar cada **venta a la sesión abierta** y al **cajero** (M4). Añadir `session_id` a `sales`.
+- [x] **3.1** Modelo de **sesión de caja**: tabla `cash_sessions` con
+      `cajero`, `apertura_at`, `monto_inicial`, `monto_inicial_brl`, `cierre_at`, `estado` (abierta/cerrada). ✅
+      → Servicio en [`lib/services/cashSessions.ts`](../lib/services/cashSessions.ts).
+      Funciones DB: `close_cash_session` (atómica). Schema en `00-schema-completo.sql`.
+- [x] **3.2** Pantalla **Abrir / Cerrar caja** en [`app/caja/page.tsx`](../app/caja/page.tsx). ✅
+      3 estados: `cerrada` (form cajero + fondo $UYU y $BRL) · `abierta` (totales en tiempo real,
+      refresco cada 30s) · `cerrando` (resumen + cerrado por + notas + confirmar).
+      Nav en `CyberNav` con dot verde cuando hay sesión abierta. Card en menú principal.
+      Cierre de caja legacy eliminado del dashboard (refactor commit `ba9513e`).
+- [x] **3.3** Asociar cada **venta a la sesión abierta** (M4). ✅
+      → `session_id` en `sales` · `create_sale_atomic` acepta `p_session_id` · POS llama
+      `getOpenSession()` al cargar y pasa `session_id` en cada venta.
 - [ ] **3.4** Reescribir reportes y cierre para trabajar **por sesión**, no por día calendario (B1).
       → Reemplaza la lógica de `setHours(0,0,0,0)` de [`cashRegister.ts`](../lib/services/cashRegister.ts).
 - [ ] **3.5** Bloquear cobrar si **no hay caja abierta** (guía al cajero a abrirla primero).
+
+> **Extra resuelto en esta fase:**
+> - `vuelto_moneda` en POS: al cobrar en BRL con vuelto, el cajero elige entre
+>   "Di el vuelto en PESOS" o "Di el vuelto en REALES" (solo efectivo). Se guarda en DB.
+> - **B16 resuelto** (commit `b0dadc6`): ventas anuladas excluidas de todos los reportes.
 
 **Criterio de salida:** abro caja a las 22:00, vendo, cierro a las 04:00 del día siguiente, y el cierre
 muestra **un solo turno** con todos los totales correctos y quién lo atendió.
