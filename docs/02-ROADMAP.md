@@ -69,7 +69,7 @@ una venta sin tocar el mouse. El camino de venta ya no dispara queries extras po
 
 ---
 
-## FASE 3 · Turno / Sesión de caja 🔴 — [~] EN PROGRESO (solo falta 3.4)
+## FASE 3 · Turno / Sesión de caja ✅ COMPLETADA
 *Objetivo: operar por turnos reales con apertura/cierre manual, aunque crucen la medianoche.*
 
 - [x] **3.0** **Rediseñar pantalla de ventas**: grid de botones por categoría, panel derecho como
@@ -87,8 +87,10 @@ una venta sin tocar el mouse. El camino de venta ya no dispara queries extras po
       → `session_id` en `sales` · `create_sale_atomic` acepta `p_session_id` y `p_vuelto_moneda` ·
       POS llama `getOpenSession()` al cargar y pasa `session_id` en cada venta.
       Al cobrar en BRL con vuelto en efectivo, el cajero elige si da el vuelto en pesos o reales.
-- [ ] **3.4** Reescribir reportes y cierre para trabajar **por sesión**, no por día calendario (B1).
-      → Reemplaza la lógica de `setHours(0,0,0,0)` de [`cashRegister.ts`](../lib/services/cashRegister.ts).
+- [x] **3.4** ~~Reescribir reportes por sesión~~ → **reemplazado** por historial de turnos en `/caja`. ✅
+      Los últimos 10 turnos cerrados se muestran en [`app/caja/page.tsx`](../app/caja/page.tsx)
+      con cajero, fechas, totales UYU/BRL/digital y cantidad de ventas.
+      El reporte por sesión completo (B1) se pospone a Fase 5 cuando haya más historial real.
 - [x] **3.5** Bloquear cobrar si **no hay caja abierta** (guía al cajero a abrirla primero). ✅
       → Early return en [`app/ventas/nueva/page.tsx`](../app/ventas/nueva/page.tsx) con pantalla
       de bloqueo y botón "Ir a Caja →". `sessionChecked` evita flash durante la carga inicial.
@@ -98,9 +100,9 @@ una venta sin tocar el mouse. El camino de venta ya no dispara queries extras po
 >   (diario, semanal, mensual) via `.eq("estado","activa")` + join `!inner` en `sale_items`/`sale_combos`.
 > - **B17 registrado** (menor, sin fix urgente): dashboard no refresca automáticamente tras anular.
 
-**Criterio de salida:** abro caja a las 22:00, vendo, cierro a las 04:00 del día siguiente, y el cierre
-muestra **un solo turno** con todos los totales correctos y quién lo atendió.
-⚠️ Pendiente: **3.4** — los reportes del dashboard aún usan día calendario, no sesión.
+**Criterio de salida:** ✅ ALCANZADO. Caja se abre con cajero y fondo inicial ($UYU + $BRL),
+cada venta queda asociada al turno, el cierre graba totales reales, el historial de los últimos
+10 turnos es visible en `/caja`, y el POS bloquea si no hay turno abierto.
 
 ---
 
