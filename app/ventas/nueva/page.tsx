@@ -293,7 +293,7 @@ export default function NuevaVentaPage() {
     }
   }, [paidAmount, paidCurrency, total, exchangeRate]);
 
-  async function guardarVenta() {
+  async function guardarVenta(vuelto_moneda: 'UYU' | 'BRL' | null = null) {
     if (cart.length === 0) return toast.warning("Carrito vacío");
     if (!metodo.trim()) return toast.warning("Elegí método de pago");
 
@@ -386,7 +386,12 @@ export default function NuevaVentaPage() {
         nota: nota.trim() ? nota.trim() : null,
         moneda: paidCurrency,
         pagado: paidAmount > 0 ? paidAmount : null,
-        vuelto: paidAmount > 0 && changeCalculation.changeUYU >= 0 ? changeCalculation.changeUYU : null,
+        vuelto: paidAmount > 0 && changeCalculation.changeUYU > 0
+          ? (vuelto_moneda === 'BRL'
+              ? changeCalculation.changeUYU / exchangeRate
+              : changeCalculation.changeUYU)
+          : null,
+        vuelto_moneda: vuelto_moneda,
         session_id: openSessionId,
         items: saleItems,
         combos: combosVendidos.length > 0 ? combosVendidos : undefined,
@@ -763,6 +768,24 @@ export default function NuevaVentaPage() {
                     <div className="text-xs text-[var(--error)] mt-1">Falta dinero</div>
                   )}
                 </div>
+                {metodo === "efectivo" && paidCurrency === "BRL" && changeCalculation.changeUYU > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={async () => { await guardarVenta("UYU"); setShowCobrarModal(false); }}
+                      disabled={saving}
+                      className="w-full py-3 text-sm font-bold uppercase tracking-widest rounded-xl border-2 border-[var(--neon-cyan)] text-[var(--neon-cyan)] hover:bg-[var(--neon-cyan)] hover:text-[var(--deep-dark)] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150"
+                    >
+                      {saving ? "PROCESANDO..." : `Di el vuelto en PESOS ($${changeCalculation.changeUYU.toFixed(2)} UYU)`}
+                    </button>
+                    <button
+                      onClick={async () => { await guardarVenta("BRL"); setShowCobrarModal(false); }}
+                      disabled={saving}
+                      className="w-full py-3 text-sm font-bold uppercase tracking-widest rounded-xl border-2 border-[var(--neon-magenta)] text-[var(--neon-magenta)] bg-[var(--magenta-glow)] hover:bg-[var(--neon-magenta)] hover:text-[var(--deep-dark)] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150"
+                    >
+                      {saving ? "PROCESANDO..." : `Di el vuelto en REALES (R$${(changeCalculation.changeUYU / exchangeRate).toFixed(2)} BRL)`}
+                    </button>
+                  </div>
+                )}
                 <button
                   onClick={() => setShowCalculator(false)}
                   className="text-xs py-2 px-4 rounded-lg border border-[var(--slate-gray)] text-[var(--text-muted)] hover:border-[var(--text-secondary)] transition-all"
@@ -800,10 +823,7 @@ export default function NuevaVentaPage() {
                 </div>
               </div>
               <button
-                onClick={async () => {
-                  await guardarVenta();
-                  setShowCobrarModal(false);
-                }}
+                onClick={async () => { await guardarVenta(null); setShowCobrarModal(false); }}
                 disabled={saving}
                 className="w-full py-4 text-base font-bold uppercase tracking-widest rounded-xl border-2 border-[var(--neon-magenta)] text-[var(--neon-magenta)] bg-[var(--magenta-glow)] hover:bg-[var(--neon-magenta)] hover:text-[var(--deep-dark)] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150"
               >
