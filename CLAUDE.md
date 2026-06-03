@@ -51,5 +51,4 @@ Orden de implementación (un paso a la vez, verificar + commit entre cada uno):
 3. Cierre — `close_cash_session` + `getSessionTotals` suman los `mov_*` + invariante
 4. POS — flujo del modal de cobro nuevo
 
-Pendiente menor antes de codear el POS: confirmar si "PAGO JUSTO $" cobra en un solo
-toque (registra y cierra) o lleva micro-confirm.
+Decidido: "PAGO JUSTO $" cobra en un solo toque (registra y cierra, sin micro-confirm).
