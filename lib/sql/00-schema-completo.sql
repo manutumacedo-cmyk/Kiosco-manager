@@ -65,6 +65,22 @@ CREATE TABLE IF NOT EXISTS sales (
   pagado        NUMERIC(10,2),                -- monto entregado, EN LA MONEDA de moneda (nullable)
   vuelto        NUMERIC(10,2),                -- vuelto entregado, en la moneda de vuelto_moneda (nullable)
   vuelto_moneda TEXT CHECK (vuelto_moneda IN ('UYU', 'BRL')),  -- NULL = UYU (default)
+  tasa_cambio   NUMERIC(10,4),                -- tasa BRL→UYU usada en la venta (snapshot, B29)
+  -- Movimiento físico NETO por cajón (entra +, sale −). Modelo "dos cajones": el
+  -- cuadre de efectivo se calcula sumando estas columnas, no infiriendo desde `total`.
+  -- Derivadas y forzadas por la DB (ver docs/01-AUDITORIA.md · B23/B24/B25).
+  mov_efectivo_uyu NUMERIC(10,2) GENERATED ALWAYS AS (
+    CASE WHEN metodo_pago = 'efectivo' THEN
+        (CASE WHEN moneda = 'UYU' THEN COALESCE(pagado, 0) ELSE 0 END)
+      - (CASE WHEN COALESCE(vuelto_moneda, 'UYU') = 'UYU' THEN COALESCE(vuelto, 0) ELSE 0 END)
+    ELSE 0 END
+  ) STORED,
+  mov_efectivo_brl NUMERIC(10,2) GENERATED ALWAYS AS (
+    CASE WHEN metodo_pago = 'efectivo' THEN
+        (CASE WHEN moneda = 'BRL' THEN COALESCE(pagado, 0) ELSE 0 END)
+      - (CASE WHEN vuelto_moneda = 'BRL' THEN COALESCE(vuelto, 0) ELSE 0 END)
+    ELSE 0 END
+  ) STORED,
   estado        TEXT NOT NULL DEFAULT 'activa',  -- 'activa' | 'anulada'
   session_id    UUID REFERENCES cash_sessions(id) ON DELETE SET NULL,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
