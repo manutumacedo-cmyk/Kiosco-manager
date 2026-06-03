@@ -228,6 +228,7 @@ CREATE INDEX IF NOT EXISTS idx_insights_created_at        ON strategic_insights(
 DROP FUNCTION IF EXISTS decrement_stock(uuid, integer);
 DROP FUNCTION IF EXISTS increment_stock(uuid, integer);
 DROP FUNCTION IF EXISTS create_sale_atomic(text, numeric, text, jsonb);
+DROP FUNCTION IF EXISTS create_sale_atomic(text, numeric, text, jsonb, text, numeric, numeric, text, uuid);
 DROP FUNCTION IF EXISTS cancel_sale(uuid);
 
 -- 1) Decremento atómico de stock (bloquea la fila con FOR UPDATE)
@@ -282,7 +283,8 @@ CREATE OR REPLACE FUNCTION create_sale_atomic(
   p_pagado      numeric DEFAULT NULL,        -- monto entregado, EN LA MONEDA p_moneda
   p_vuelto        numeric DEFAULT NULL,        -- vuelto entregado, en la moneda de p_vuelto_moneda
   p_vuelto_moneda text    DEFAULT NULL,        -- 'UYU' | 'BRL' | NULL (NULL = UYU por defecto)
-  p_session_id    uuid    DEFAULT NULL         -- sesión de caja activa
+  p_session_id    uuid    DEFAULT NULL,        -- sesión de caja activa
+  p_tasa_cambio   numeric DEFAULT NULL         -- tasa BRL→UYU al momento de la venta (snapshot)
 )
 RETURNS uuid
 LANGUAGE plpgsql
@@ -294,8 +296,22 @@ DECLARE
   new_stock integer;
   v_product_exists boolean;
 BEGIN
-  INSERT INTO sales (metodo_pago, total, nota, moneda, pagado, vuelto, vuelto_moneda, session_id)
-  VALUES (p_metodo_pago, p_total, p_nota, COALESCE(p_moneda, 'UYU'), p_pagado, p_vuelto, p_vuelto_moneda, p_session_id)
+  -- Validación de efectivo: el cuadre por cajón necesita saber qué entró y qué salió.
+  -- Sin `pagado`, mov_efectivo_* daría 0 y el cajón quedaría mal (raíz de B24/B25).
+  IF p_metodo_pago = 'efectivo' THEN
+    IF p_pagado IS NULL OR p_pagado <= 0 THEN
+      RAISE EXCEPTION 'Venta en efectivo: falta el monto pagado';
+    END IF;
+    IF p_vuelto IS NULL THEN
+      RAISE EXCEPTION 'Venta en efectivo: falta el vuelto (usar 0 si es pago justo)';
+    END IF;
+    IF p_vuelto > 0 AND p_vuelto_moneda IS NULL THEN
+      RAISE EXCEPTION 'Venta en efectivo con vuelto: falta la moneda del vuelto';
+    END IF;
+  END IF;
+
+  INSERT INTO sales (metodo_pago, total, nota, moneda, pagado, vuelto, vuelto_moneda, tasa_cambio, session_id)
+  VALUES (p_metodo_pago, p_total, p_nota, COALESCE(p_moneda, 'UYU'), p_pagado, p_vuelto, p_vuelto_moneda, p_tasa_cambio, p_session_id)
   RETURNING id INTO new_sale_id;
 
   FOR item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
