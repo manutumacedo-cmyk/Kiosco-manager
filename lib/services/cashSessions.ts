@@ -7,6 +7,7 @@ export interface SessionTotals {
   total_efectivo_brl: number; // en BRL (neto: pagado − vuelto en BRL)
   total_digital: number;
   cantidad_ventas: number;
+  total_brl_en_uyu: number;   // cajón BRL valuado en UYU (Σ mov_brl × tasa) — para el invariante
 }
 
 /**
@@ -30,7 +31,7 @@ export async function getOpenSession(): Promise<CashSession | null> {
 export async function getSessionTotals(sessionId: string): Promise<SessionTotals> {
   const { data, error } = await supabase
     .from("sales")
-    .select("total, metodo_pago, moneda, pagado, vuelto, vuelto_moneda")
+    .select("total, metodo_pago, mov_efectivo_uyu, mov_efectivo_brl, tasa_cambio")
     .eq("session_id", sessionId)
     .eq("estado", "activa");
 
@@ -40,23 +41,19 @@ export async function getSessionTotals(sessionId: string): Promise<SessionTotals
 
   const total_ventas = sales.reduce((sum, s) => sum + Number(s.total || 0), 0);
 
-  const total_efectivo_uyu = sales
-    .filter((s) => s.metodo_pago === "efectivo" && s.moneda === "UYU")
-    .reduce((sum, s) => sum + Number(s.total || 0), 0);
-
-  const brl_cobrado = sales
-    .filter((s) => s.metodo_pago === "efectivo" && s.moneda === "BRL")
-    .reduce((sum, s) => sum + Number(s.pagado || 0), 0);
-
-  const brl_devuelto = sales
-    .filter((s) => s.vuelto_moneda === "BRL")
-    .reduce((sum, s) => sum + Number(s.vuelto || 0), 0);
-
-  const total_efectivo_brl = brl_cobrado - brl_devuelto;
+  // Efectivo por cajón = movimiento físico neto (calculado por la DB). Ver B23/B24/B25.
+  const total_efectivo_uyu = sales.reduce((sum, s) => sum + Number(s.mov_efectivo_uyu || 0), 0);
+  const total_efectivo_brl = sales.reduce((sum, s) => sum + Number(s.mov_efectivo_brl || 0), 0);
 
   const total_digital = sales
     .filter((s) => s.metodo_pago !== "efectivo")
     .reduce((sum, s) => sum + Number(s.total || 0), 0);
+
+  // Cajón BRL valuado en UYU, a la tasa de cada venta — para el invariante de consistencia.
+  const total_brl_en_uyu = sales.reduce(
+    (sum, s) => sum + Number(s.mov_efectivo_brl || 0) * Number(s.tasa_cambio || 0),
+    0
+  );
 
   return {
     total_ventas,
@@ -64,6 +61,7 @@ export async function getSessionTotals(sessionId: string): Promise<SessionTotals
     total_efectivo_brl,
     total_digital,
     cantidad_ventas: sales.length,
+    total_brl_en_uyu,
   };
 }
 

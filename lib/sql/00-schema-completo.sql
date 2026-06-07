@@ -400,10 +400,11 @@ BEGIN
 
   SELECT
     COALESCE(SUM(total), 0),
-    COALESCE(SUM(CASE WHEN metodo_pago = 'efectivo' AND moneda = 'UYU' THEN total ELSE 0 END), 0),
-    -- BRL neto: reales recibidos menos reales devueltos como vuelto
-    COALESCE(SUM(CASE WHEN metodo_pago = 'efectivo' AND moneda = 'BRL' THEN pagado ELSE 0 END), 0)
-    - COALESCE(SUM(CASE WHEN vuelto_moneda = 'BRL' THEN vuelto ELSE 0 END), 0),
+    -- Efectivo por cajón = movimiento físico NETO (entra +, sale −). Antes se usaba
+    -- SUM(total) por moneda, que ignoraba el vuelto en pesos sobre ventas en reales
+    -- → cajón de pesos corto (B23). Ahora suma mov_efectivo_* (calculado por la DB).
+    COALESCE(SUM(mov_efectivo_uyu), 0),
+    COALESCE(SUM(mov_efectivo_brl), 0),
     COALESCE(SUM(CASE WHEN metodo_pago != 'efectivo' THEN total ELSE 0 END), 0),
     COUNT(*)
   INTO v_total_ventas, v_efectivo_uyu, v_efectivo_brl, v_digital, v_cantidad

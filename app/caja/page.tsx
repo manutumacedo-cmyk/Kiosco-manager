@@ -94,6 +94,7 @@ export default function CajaPage() {
         total_efectivo_brl: 0,
         total_digital: 0,
         cantidad_ventas: 0,
+        total_brl_en_uyu: 0,
       });
       setPageState("abierta");
     } catch (e) {
