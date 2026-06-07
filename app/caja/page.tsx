@@ -125,6 +125,15 @@ export default function CajaPage() {
     }
   }
 
+  // Invariante de consistencia: total_ventas ≈ efectivo_uyu + (cajón BRL valuado en UYU) + digital.
+  // Aviso NO alarmista en el cierre si no cuadra (posible bug de datos). Ver B23-B25.
+  // Tolerancia holgada: el vuelto en reales se redondea a centavos → arrastra ~centavos por venta.
+  const descuadreInvariante = totals
+    ? totals.total_ventas - (totals.total_efectivo_uyu + totals.total_brl_en_uyu + totals.total_digital)
+    : 0;
+  const hayDescuadre =
+    !!totals && Math.abs(descuadreInvariante) > 1 + totals.cantidad_ventas * 0.05;
+
   if (pageState === "loading") {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -354,6 +363,17 @@ export default function CajaPage() {
                 <span>R$ {fmt(session.monto_inicial_brl + totals.total_efectivo_brl)}</span>
               </div>
             </div>
+
+            {hayDescuadre && (
+              <div className="p-3 rounded-lg border border-[var(--warning)] bg-[rgba(255,170,0,0.08)] text-sm">
+                <p className="text-[var(--warning)] font-semibold">⚠️ Revisar: los totales no cuadran</p>
+                <p className="text-[var(--text-secondary)] text-xs mt-1">
+                  Efectivo + digital no coincide con el total de ventas
+                  (diferencia $ {fmt(Math.abs(descuadreInvariante))}). Conviene revisar
+                  las ventas del turno antes de cerrar.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Formulario de cierre */}
