@@ -295,6 +295,7 @@ DECLARE
   cur_stock integer;
   new_stock integer;
   v_product_exists boolean;
+  v_nombre text;
 BEGIN
   -- Validación de efectivo: el cuadre por cajón necesita saber qué entró y qué salió.
   -- Sin `pagado`, mov_efectivo_* daría 0 y el cajón quedaría mal (raíz de B24/B25).
@@ -329,12 +330,13 @@ BEGIN
       INTO v_product_exists;
 
     IF v_product_exists THEN
-      SELECT stock INTO cur_stock
+      SELECT stock, nombre INTO cur_stock, v_nombre
       FROM products WHERE id = (item->>'product_id')::uuid FOR UPDATE;
 
       new_stock := cur_stock - (item->>'cantidad')::integer;
       IF new_stock < 0 THEN
-        RAISE EXCEPTION 'Stock insuficiente para producto %', item->>'product_id';
+        RAISE EXCEPTION 'Stock insuficiente: % (hay %, se pidieron %)',
+          v_nombre, cur_stock, (item->>'cantidad')::integer;
       END IF;
 
       UPDATE products SET stock = new_stock WHERE id = (item->>'product_id')::uuid;

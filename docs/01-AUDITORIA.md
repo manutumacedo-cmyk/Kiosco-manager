@@ -181,7 +181,13 @@
 - **Impacto:** El ingreso y costo del combo desaparecen del reporte y `Σ(líneas) ≠ total`. Reabre
   parcialmente B2 por una vía distinta (la costura no atómica).
 
-#### B20 · "Stock insuficiente" muestra el UUID y voltea toda la venta 🟠
+#### B20 · "Stock insuficiente" muestra el UUID y voltea toda la venta 🟠 — ✅ MENSAJE RESUELTO
+> **Update:** `create_sale_atomic` ahora levanta `'Stock insuficiente: % (hay %, se pidieron %)'` con el
+> **nombre** del producto, el stock disponible y la cantidad pedida (el `SELECT` que bloquea la fila con
+> `FOR UPDATE` trae también `nombre` → cero query extra). El cajero ve, p. ej.,
+> *"Stock insuficiente: Monster (hay 0, se pidieron 1)"*. **Pendiente la otra mitad**: que un faltante de
+> un solo ítem **no aborte el carrito entero** (cambio transaccional, aparte).
+
 - **Dónde:** [`lib/sql/00-schema-completo.sql`](../lib/sql/00-schema-completo.sql#L305) —
   `RAISE EXCEPTION 'Stock insuficiente para producto %'` con el `product_id` (UUID).
 - **Qué pasa:** Si un solo ítem queda corto, la RPC aborta la venta entera y el front muestra un UUID
