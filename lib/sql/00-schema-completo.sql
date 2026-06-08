@@ -240,6 +240,7 @@ DROP FUNCTION IF EXISTS increment_stock(uuid, integer);
 DROP FUNCTION IF EXISTS create_sale_atomic(text, numeric, text, jsonb);
 DROP FUNCTION IF EXISTS create_sale_atomic(text, numeric, text, jsonb, text, numeric, numeric, text, uuid);
 DROP FUNCTION IF EXISTS cancel_sale(uuid);
+DROP FUNCTION IF EXISTS close_cash_session(uuid, text, text);
 
 -- 1) Decremento atómico de stock (bloquea la fila con FOR UPDATE)
 CREATE OR REPLACE FUNCTION decrement_stock(p_product_id uuid, p_cantidad integer)
@@ -390,9 +391,11 @@ $$;
 
 -- 5) Cerrar sesión de caja y grabar snapshot de totales (atómico)
 CREATE OR REPLACE FUNCTION close_cash_session(
-  p_session_id  UUID,
-  p_cerrado_por TEXT,
-  p_notas       TEXT DEFAULT NULL
+  p_session_id           UUID,
+  p_cerrado_por          TEXT,
+  p_notas                TEXT    DEFAULT NULL,
+  p_efectivo_contado_uyu NUMERIC DEFAULT NULL,
+  p_efectivo_contado_brl NUMERIC DEFAULT NULL
 )
 RETURNS void
 LANGUAGE plpgsql
@@ -431,8 +434,10 @@ BEGIN
     total_ventas       = v_total_ventas,
     total_efectivo_uyu = v_efectivo_uyu,
     total_efectivo_brl = v_efectivo_brl,
-    total_digital      = v_digital,
-    cantidad_ventas    = v_cantidad
+    total_digital        = v_digital,
+    cantidad_ventas      = v_cantidad,
+    efectivo_contado_uyu = p_efectivo_contado_uyu,
+    efectivo_contado_brl = p_efectivo_contado_brl
   WHERE id = p_session_id;
 END;
 $$;
