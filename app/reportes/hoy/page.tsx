@@ -278,13 +278,13 @@ export default function DashboardPage() {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="data-card neon-outline-cyan">
                   <div className="text-[var(--text-muted)] text-sm uppercase tracking-wide">Ingresos hoy</div>
-                  <div className="text-4xl font-bold mt-2 neon-text-cyan">${metricasDiarias.totalIngresos.toFixed(2)}</div>
+                  <div className="text-4xl font-bold mt-2 neon-text-cyan">${metricasDiarias.totalIngresos.toLocaleString("es-UY", { maximumFractionDigits: 0 })}</div>
                   <div className="text-[var(--text-secondary)] text-sm mt-3 font-mono">{metricasDiarias.ventasCount} ventas</div>
                 </div>
 
                 <div className="data-card neon-outline-magenta animate-pulse-magenta bg-[var(--magenta-glow)]">
                   <div className="text-[var(--text-muted)] text-sm uppercase tracking-wide">Ganancia limpia</div>
-                  <div className="text-4xl font-bold mt-2 neon-text-magenta">${metricasDiarias.gananciaLimpia.toFixed(2)}</div>
+                  <div className="text-4xl font-bold mt-2 neon-text-magenta">${metricasDiarias.gananciaLimpia.toLocaleString("es-UY", { maximumFractionDigits: 0 })}</div>
                   <div className="text-[var(--text-secondary)] text-xs mt-3 font-mono">
                     Margen: {metricasDiarias.margenPorcentaje.toFixed(1)}%
                   </div>
@@ -292,7 +292,7 @@ export default function DashboardPage() {
 
                 <div className="data-card neon-outline-cyan">
                   <div className="text-[var(--text-muted)] text-sm uppercase tracking-wide">Costos hoy</div>
-                  <div className="text-4xl font-bold mt-2 neon-text-cyan">${metricasDiarias.totalCostos.toFixed(2)}</div>
+                  <div className="text-4xl font-bold mt-2 neon-text-cyan">${metricasDiarias.totalCostos.toLocaleString("es-UY", { maximumFractionDigits: 0 })}</div>
                 </div>
               </div>
 
@@ -344,7 +344,7 @@ export default function DashboardPage() {
                                 </span>
                               </td>
                               <td className="p-3 text-right font-mono font-bold text-[var(--neon-magenta)]">
-                                ${Number(sale.total).toFixed(2)}
+                                ${Number(sale.total).toLocaleString("es-UY", { maximumFractionDigits: 0 })}
                               </td>
                             </tr>
                           );
@@ -364,13 +364,13 @@ export default function DashboardPage() {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="data-card neon-outline-cyan">
                   <div className="text-[var(--text-muted)] text-sm uppercase tracking-wide">Ingresos (7 días)</div>
-                  <div className="text-4xl font-bold mt-2 neon-text-cyan">${metricasSemanales.totalIngresos.toFixed(2)}</div>
+                  <div className="text-4xl font-bold mt-2 neon-text-cyan">${metricasSemanales.totalIngresos.toLocaleString("es-UY", { maximumFractionDigits: 0 })}</div>
                   <div className="text-[var(--text-secondary)] text-sm mt-3 font-mono">{metricasSemanales.ventasCount} ventas</div>
                 </div>
 
                 <div className="data-card neon-outline-magenta animate-pulse-magenta bg-[var(--magenta-glow)]">
                   <div className="text-[var(--text-muted)] text-sm uppercase tracking-wide">Ganancia semanal</div>
-                  <div className="text-4xl font-bold mt-2 neon-text-magenta">${metricasSemanales.gananciaLimpia.toFixed(2)}</div>
+                  <div className="text-4xl font-bold mt-2 neon-text-magenta">${metricasSemanales.gananciaLimpia.toLocaleString("es-UY", { maximumFractionDigits: 0 })}</div>
                   <div className="text-[var(--text-secondary)] text-xs mt-3 font-mono">
                     Margen: {metricasSemanales.margenPorcentaje.toFixed(1)}%
                   </div>
@@ -379,7 +379,7 @@ export default function DashboardPage() {
                 <div className="data-card neon-outline-cyan">
                   <div className="text-[var(--text-muted)] text-sm uppercase tracking-wide">Promedio por día</div>
                   <div className="text-4xl font-bold mt-2 neon-text-cyan">
-                    ${(metricasSemanales.totalIngresos / 7).toFixed(2)}
+                    ${(metricasSemanales.totalIngresos / 7).toLocaleString("es-UY", { maximumFractionDigits: 0 })}
                   </div>
                 </div>
               </div>
@@ -431,7 +431,7 @@ export default function DashboardPage() {
                                 {dia.cantidad}
                               </td>
                               <td className="p-3 text-right font-mono font-bold text-[var(--neon-magenta)]">
-                                ${dia.total.toFixed(2)}
+                                ${dia.total.toLocaleString("es-UY", { maximumFractionDigits: 0 })}
                               </td>
                               <td className="p-3 text-right font-mono text-[var(--text-secondary)]">
                                 {porcentaje.toFixed(1)}%
@@ -461,17 +461,17 @@ export default function DashboardPage() {
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
                 <div className="data-card neon-outline-cyan">
                   <div className="text-[var(--text-muted)] text-sm uppercase tracking-wide">Ingresos del mes</div>
-                  <div className="text-4xl font-bold mt-2 neon-text-cyan">${metricasMensuales.totalIngresos.toFixed(2)}</div>
+                  <div className="text-4xl font-bold mt-2 neon-text-cyan">${metricasMensuales.totalIngresos.toLocaleString("es-UY", { maximumFractionDigits: 0 })}</div>
                 </div>
 
                 <div className="data-card neon-outline-magenta animate-pulse-magenta bg-[var(--magenta-glow)]">
                   <div className="text-[var(--text-muted)] text-sm uppercase tracking-wide">Ganancia mensual</div>
-                  <div className="text-4xl font-bold mt-2 neon-text-magenta">${metricasMensuales.gananciaLimpia.toFixed(2)}</div>
+                  <div className="text-4xl font-bold mt-2 neon-text-magenta">${metricasMensuales.gananciaLimpia.toLocaleString("es-UY", { maximumFractionDigits: 0 })}</div>
                 </div>
 
                 <div className="data-card neon-outline-cyan">
                   <div className="text-[var(--text-muted)] text-sm uppercase tracking-wide">Costos del mes</div>
-                  <div className="text-3xl font-bold mt-2 text-[var(--error)]">${metricasMensuales.totalCostos.toFixed(2)}</div>
+                  <div className="text-3xl font-bold mt-2 text-[var(--error)]">${metricasMensuales.totalCostos.toLocaleString("es-UY", { maximumFractionDigits: 0 })}</div>
                 </div>
 
                 <div className="data-card neon-outline-cyan">
@@ -506,7 +506,7 @@ export default function DashboardPage() {
                           {i + 1}. {p.nombre}
                           {p.esCombo && <span className="ml-2 text-xs text-[var(--neon-magenta)] font-bold">COMBO</span>}
                         </span>
-                        <span className="font-mono font-bold text-[var(--neon-magenta)]">${p.gananciaTotal.toFixed(2)}</span>
+                        <span className="font-mono font-bold text-[var(--neon-magenta)]">${p.gananciaTotal.toLocaleString("es-UY", { maximumFractionDigits: 0 })}</span>
                       </div>
                     ))}
                   </div>
@@ -535,8 +535,8 @@ export default function DashboardPage() {
                           <tr key={i} className="border-t border-[var(--slate-gray)] hover:bg-[var(--carbon-gray)]">
                             <td className="p-3 text-[var(--text-primary)] font-medium">{c.nombre}</td>
                             <td className="p-3 text-right font-mono text-[var(--neon-cyan)]">{c.cantidad}</td>
-                            <td className="p-3 text-right font-mono text-[var(--neon-cyan)]">${c.ingresoTotal.toFixed(2)}</td>
-                            <td className="p-3 text-right font-mono font-bold text-[var(--neon-magenta)]">${c.gananciaTotal.toFixed(2)}</td>
+                            <td className="p-3 text-right font-mono text-[var(--neon-cyan)]">${c.ingresoTotal.toLocaleString("es-UY", { maximumFractionDigits: 0 })}</td>
+                            <td className="p-3 text-right font-mono font-bold text-[var(--neon-magenta)]">${c.gananciaTotal.toLocaleString("es-UY", { maximumFractionDigits: 0 })}</td>
                             <td className="p-3 text-right font-mono font-bold" style={{
                               color: c.margenPorcentaje > 40 ? 'var(--success)' : c.margenPorcentaje > 20 ? 'var(--warning)' : 'var(--error)'
                             }}>
@@ -584,7 +584,7 @@ export default function DashboardPage() {
                           <span className="font-mono text-sm text-[var(--error)] font-bold">{p.margenPorcentaje.toFixed(1)}%</span>
                         </div>
                         <div className="text-xs text-[var(--text-muted)] mt-1">
-                          Ganancia total: ${p.gananciaTotal.toFixed(2)}
+                          Ganancia total: ${p.gananciaTotal.toLocaleString("es-UY", { maximumFractionDigits: 0 })}
                         </div>
                       </div>
                     ))}
@@ -631,8 +631,8 @@ export default function DashboardPage() {
                         <tr key={i} className="border-t border-[var(--slate-gray)] hover:bg-[var(--carbon-gray)]">
                           <td className="p-3 text-[var(--text-primary)]">{p.nombre}</td>
                           <td className="p-3 text-right font-mono text-[var(--neon-cyan)]">{p.cantidad}</td>
-                          <td className="p-3 text-right font-mono text-[var(--neon-cyan)]">${p.ingresoTotal.toFixed(2)}</td>
-                          <td className="p-3 text-right font-mono text-[var(--neon-magenta)]">${p.gananciaTotal.toFixed(2)}</td>
+                          <td className="p-3 text-right font-mono text-[var(--neon-cyan)]">${p.ingresoTotal.toLocaleString("es-UY", { maximumFractionDigits: 0 })}</td>
+                          <td className="p-3 text-right font-mono text-[var(--neon-magenta)]">${p.gananciaTotal.toLocaleString("es-UY", { maximumFractionDigits: 0 })}</td>
                           <td className="p-3 text-right font-mono font-bold" style={{
                             color: p.margenPorcentaje > 40 ? 'var(--success)' : p.margenPorcentaje > 20 ? 'var(--warning)' : 'var(--error)'
                           }}>
@@ -664,16 +664,16 @@ export default function DashboardPage() {
                 <div className="data-card neon-outline-cyan">
                   <div className="text-[var(--text-muted)] text-xs uppercase">Ganancia Total (mes)</div>
                   <div className="text-3xl font-bold mt-2 neon-text-cyan">
-                    ${metricasMensuales.gananciaLimpia.toFixed(2)}
+                    ${metricasMensuales.gananciaLimpia.toLocaleString("es-UY", { maximumFractionDigits: 0 })}
                   </div>
                   <div className="text-xs text-[var(--text-secondary)] mt-2">
-                    Ingresos: ${metricasMensuales.totalIngresos.toFixed(2)}
+                    Ingresos: ${metricasMensuales.totalIngresos.toLocaleString("es-UY", { maximumFractionDigits: 0 })}
                   </div>
                 </div>
                 <div className="data-card neon-outline-cyan">
                   <div className="text-[var(--text-muted)] text-xs uppercase">Costos Totales</div>
                   <div className="text-3xl font-bold mt-2 text-[var(--warning)]">
-                    ${metricasMensuales.totalCostos.toFixed(2)}
+                    ${metricasMensuales.totalCostos.toLocaleString("es-UY", { maximumFractionDigits: 0 })}
                   </div>
                   <div className="text-xs text-[var(--text-secondary)] mt-2">
                     {((metricasMensuales.totalCostos / metricasMensuales.totalIngresos) * 100).toFixed(1)}% de ingresos
@@ -732,10 +732,10 @@ export default function DashboardPage() {
                               </td>
                               <td className="p-3 text-right font-mono text-[var(--neon-cyan)]">{p.cantidad}</td>
                               <td className="p-3 text-right font-mono text-[var(--neon-cyan)]">
-                                ${p.ingresoTotal.toFixed(2)}
+                                ${p.ingresoTotal.toLocaleString("es-UY", { maximumFractionDigits: 0 })}
                               </td>
                               <td className="p-3 text-right font-mono text-[var(--neon-magenta)] font-bold">
-                                ${p.gananciaTotal.toFixed(2)}
+                                ${p.gananciaTotal.toLocaleString("es-UY", { maximumFractionDigits: 0 })}
                               </td>
                               <td
                                 className="p-3 text-right font-mono font-bold text-lg"
@@ -756,10 +756,10 @@ export default function DashboardPage() {
                           Total General
                         </td>
                         <td className="p-3 text-right font-mono font-bold text-[var(--neon-cyan)]">
-                          ${metricasMensuales.totalIngresos.toFixed(2)}
+                          ${metricasMensuales.totalIngresos.toLocaleString("es-UY", { maximumFractionDigits: 0 })}
                         </td>
                         <td className="p-3 text-right font-mono font-bold text-[var(--neon-magenta)]">
-                          ${metricasMensuales.gananciaLimpia.toFixed(2)}
+                          ${metricasMensuales.gananciaLimpia.toLocaleString("es-UY", { maximumFractionDigits: 0 })}
                         </td>
                         <td className="p-3 text-right font-mono font-bold text-lg neon-text-cyan">
                           {metricasMensuales.margenPorcentaje.toFixed(1)}%
@@ -795,7 +795,7 @@ export default function DashboardPage() {
                             {i + 1}. {p.nombre}
                           </span>
                           <span className="font-mono text-sm text-[var(--success)] font-bold">
-                            ${p.gananciaTotal.toFixed(2)}
+                            ${p.gananciaTotal.toLocaleString("es-UY", { maximumFractionDigits: 0 })}
                           </span>
                         </div>
                         <div className="text-xs text-[var(--text-muted)] mt-1">
@@ -821,7 +821,7 @@ export default function DashboardPage() {
                           </span>
                         </div>
                         <div className="text-xs text-[var(--text-muted)] mt-1">
-                          Ganancia: ${p.gananciaTotal.toFixed(2)} • Vendido: {p.cantidad}
+                          Ganancia: ${p.gananciaTotal.toLocaleString("es-UY", { maximumFractionDigits: 0 })} • Vendido: {p.cantidad}
                         </div>
                         <div className="text-xs text-[var(--warning)] mt-1">
                           {p.margenPorcentaje < 15 ? '🔴 Crítico: Considerá aumentar precio o cambiar proveedor' : '🟡 Revisar costos'}

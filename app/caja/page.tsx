@@ -13,8 +13,13 @@ import type { CashSession } from "@/types";
 
 type PageState = "loading" | "cerrada" | "abierta" | "cerrando";
 
+// Pesos uruguayos: sin decimales (no hay centavos).
 function fmt(n: number) {
-  return new Intl.NumberFormat("es-UY", { minimumFractionDigits: 2 }).format(n);
+  return new Intl.NumberFormat("es-UY", { maximumFractionDigits: 0 }).format(n);
+}
+// Reales: con centavos.
+function fmtBRL(n: number) {
+  return new Intl.NumberFormat("es-UY", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 }
 
 function fmtDate(iso: string) {
@@ -254,7 +259,7 @@ export default function CajaPage() {
                   $ {fmt(session.monto_inicial)}
                   {session.monto_inicial_brl > 0 && (
                     <span className="ml-2 text-[var(--text-secondary)]">
-                      · R$ {fmt(session.monto_inicial_brl)}
+                      · R$ {fmtBRL(session.monto_inicial_brl)}
                     </span>
                   )}
                 </p>
@@ -281,7 +286,7 @@ export default function CajaPage() {
                 </div>
                 <div className="flex justify-between text-[var(--text-secondary)]">
                   <span>Efectivo BRL (neto)</span>
-                  <span>R$ {fmt(totals.total_efectivo_brl)}</span>
+                  <span>R$ {fmtBRL(totals.total_efectivo_brl)}</span>
                 </div>
                 <div className="flex justify-between text-[var(--text-secondary)]">
                   <span>Digital / transferencia</span>
@@ -326,7 +331,7 @@ export default function CajaPage() {
                   $ {fmt(session.monto_inicial)}
                   {session.monto_inicial_brl > 0 && (
                     <span className="ml-2 text-[var(--text-secondary)]">
-                      · R$ {fmt(session.monto_inicial_brl)}
+                      · R$ {fmtBRL(session.monto_inicial_brl)}
                     </span>
                   )}
                 </p>
@@ -348,7 +353,7 @@ export default function CajaPage() {
               </div>
               <div className="flex justify-between text-[var(--text-secondary)]">
                 <span>Efectivo BRL (neto)</span>
-                <span>R$ {fmt(totals.total_efectivo_brl)}</span>
+                <span>R$ {fmtBRL(totals.total_efectivo_brl)}</span>
               </div>
               <div className="flex justify-between text-[var(--text-secondary)]">
                 <span>Digital / transferencia</span>
@@ -360,7 +365,7 @@ export default function CajaPage() {
               </div>
               <div className="flex justify-between font-semibold">
                 <span className="text-[var(--text-secondary)]">Efectivo total en caja R$</span>
-                <span>R$ {fmt(session.monto_inicial_brl + totals.total_efectivo_brl)}</span>
+                <span>R$ {fmtBRL(session.monto_inicial_brl + totals.total_efectivo_brl)}</span>
               </div>
             </div>
 
@@ -466,7 +471,7 @@ export default function CajaPage() {
                     </p>
                     {(s.total_efectivo_brl ?? 0) > 0 && (
                       <p className="text-[var(--text-secondary)] text-xs">
-                        R$ {fmt(s.total_efectivo_brl ?? 0)} BRL
+                        R$ {fmtBRL(s.total_efectivo_brl ?? 0)} BRL
                       </p>
                     )}
                     {(s.total_digital ?? 0) > 0 && (

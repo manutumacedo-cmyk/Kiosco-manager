@@ -181,7 +181,7 @@ export default function HistorialVentasPage() {
         </div>
         <div className="data-card neon-outline-cyan">
           <div className="text-[var(--text-muted)] text-xs uppercase">Ingresos</div>
-          <div className="text-3xl font-bold mt-2 neon-text-cyan">${totalIngresos.toFixed(2)}</div>
+          <div className="text-3xl font-bold mt-2 neon-text-cyan">${totalIngresos.toLocaleString("es-UY", { maximumFractionDigits: 0 })}</div>
         </div>
         <div className="data-card neon-outline-red">
           <div className="text-[var(--text-muted)] text-xs uppercase">Ventas anuladas</div>
@@ -227,7 +227,7 @@ export default function HistorialVentasPage() {
                   <div>
                     <div className="text-xs text-[var(--text-muted)] uppercase">Total</div>
                     <div className={`text-xl font-bold ${sale.estado === "anulada" ? "line-through text-[var(--error)]" : "neon-text-cyan"}`}>
-                      ${Number(sale.total).toFixed(2)}
+                      ${Number(sale.total).toLocaleString("es-UY", { maximumFractionDigits: 0 })}
                     </div>
                     <div className="text-xs text-[var(--text-secondary)]">{sale.moneda}</div>
                   </div>
@@ -279,7 +279,7 @@ export default function HistorialVentasPage() {
                       <div key={idx} className="flex justify-between items-center text-sm">
                         <span className="text-[var(--text-primary)]">{item.nombre}</span>
                         <span className="font-mono text-[var(--text-secondary)]">
-                          {item.cantidad}x ${Number(item.precio_unitario).toFixed(2)}
+                          {item.cantidad}x ${Number(item.precio_unitario).toLocaleString("es-UY", { maximumFractionDigits: 0 })}
                         </span>
                       </div>
                     ))}
