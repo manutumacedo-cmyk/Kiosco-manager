@@ -406,6 +406,9 @@ export default function NuevaVentaPage() {
   function cobrarPagoJusto() {
     guardarVenta({ metodo: "efectivo", moneda: "UYU", pagado: total, vuelto: 0, vuelto_moneda: "UYU" });
   }
+  function cobrarPagoJustoBRL() {
+    guardarVenta({ metodo: "efectivo", moneda: "BRL", pagado: total / exchangeRate, vuelto: 0, vuelto_moneda: "BRL" });
+  }
   function cobrarDigital(metodo: string) {
     guardarVenta({ metodo, moneda: "UYU", pagado: null, vuelto: null, vuelto_moneda: null });
   }
@@ -680,9 +683,14 @@ export default function NuevaVentaPage() {
           <div className="border-t border-[var(--slate-gray)] p-4 space-y-3 flex-shrink-0">
             <div className="flex justify-between items-baseline">
               <span className="text-[var(--text-muted)] text-xs uppercase tracking-wide">Total</span>
-              <span className="text-3xl font-bold font-mono neon-text-cyan">
-                ${total.toFixed(2)}
-              </span>
+              <div className="text-right">
+                <div className="text-3xl font-bold font-mono neon-text-cyan">
+                  ${total.toFixed(2)} <span className="text-sm font-normal">UYU</span>
+                </div>
+                <div className="text-xs font-mono text-[var(--text-muted)]">
+                  ≈ R${(total / exchangeRate).toFixed(2)} BRL
+                </div>
+              </div>
             </div>
             <button
               onClick={abrirCobro}
@@ -721,15 +729,27 @@ export default function NuevaVentaPage() {
 
             {cobroStep === "select" ? (
               <>
-                {/* NIVEL 1 — PAGO JUSTO (un toque) */}
-                <button
-                  onClick={cobrarPagoJusto}
-                  disabled={saving}
-                  className="w-full py-6 rounded-2xl border-2 border-[var(--neon-magenta)] bg-[var(--neon-magenta)] text-[var(--deep-dark)] font-bold uppercase tracking-widest shadow-lg hover:brightness-110 active:scale-[0.98] disabled:opacity-50 transition-all"
-                >
-                  <div className="text-2xl">{saving ? "PROCESANDO..." : `PAGO JUSTO  $${total.toFixed(2)}`}</div>
-                  <div className="text-xs font-normal tracking-wide mt-0.5 opacity-80">efectivo · pesos · un toque</div>
-                </button>
+                {/* NIVEL 1 — PAGO JUSTO dual (un toque) */}
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={cobrarPagoJusto}
+                    disabled={saving}
+                    className="py-5 rounded-2xl border-2 border-[var(--neon-magenta)] bg-[var(--neon-magenta)] text-[var(--deep-dark)] font-bold uppercase tracking-wide shadow-lg hover:brightness-110 active:scale-[0.98] disabled:opacity-50 transition-all"
+                  >
+                    <div className="text-base leading-tight">PAGO JUSTO</div>
+                    <div className="text-xl font-mono mt-0.5">${total.toFixed(2)}</div>
+                    <div className="text-[10px] font-normal opacity-80 mt-0.5">UYU · un toque</div>
+                  </button>
+                  <button
+                    onClick={cobrarPagoJustoBRL}
+                    disabled={saving}
+                    className="py-5 rounded-2xl border-2 border-[var(--neon-cyan)] text-[var(--neon-cyan)] font-bold uppercase tracking-wide hover:bg-[var(--neon-cyan)] hover:text-[var(--deep-dark)] active:scale-[0.98] disabled:opacity-50 transition-all"
+                  >
+                    <div className="text-base leading-tight">PAGO JUSTO</div>
+                    <div className="text-xl font-mono mt-0.5">R${(total / exchangeRate).toFixed(2)}</div>
+                    <div className="text-[10px] font-normal opacity-80 mt-0.5">BRL · un toque</div>
+                  </button>
+                </div>
 
                 {/* divisor */}
                 <div className="flex items-center gap-3 text-[10px] uppercase tracking-widest text-[var(--text-muted)]">
