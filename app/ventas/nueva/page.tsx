@@ -12,6 +12,10 @@ import { useToast } from "@/components/ui/Toast";
 
 type Currency = "UYU" | "BRL";
 
+// Pesos uruguayos no tienen centavos: redondeo a entero (≥0.50 sube, <0.50 baja).
+// Solo para UYU — los reales (BRL) mantienen centavos.
+const roundUYU = (n: number) => Math.round(n);
+
 export default function NuevaVentaPage() {
   const toast = useToast();
   const [products, setProducts] = useState<Product[]>([]);
@@ -147,7 +151,7 @@ export default function NuevaVentaPage() {
       const basePrice = it.cantidad * it.precio_unitario;
       const monsterExtra = it.includeMonster && it.categoria === "Vasos" ? it.cantidad * MONSTER_PRICE : 0;
       const shotExtra = it.shotExtra || 0;
-      return a + basePrice + monsterExtra + shotExtra;
+      return a + roundUYU(basePrice + monsterExtra + shotExtra);
     }, 0);
   }, [cart]);
 
@@ -418,8 +422,9 @@ export default function NuevaVentaPage() {
     setCobroStep("vuelto");
   }
   function elegirCustom() {
-    const amount = Number(customAmount);
-    if (!amount || amount <= 0) return toast.warning("Ingresá un monto válido");
+    const raw = Number(customAmount);
+    if (!raw || raw <= 0) return toast.warning("Ingresá un monto válido");
+    const amount = customCurrency === "UYU" ? roundUYU(raw) : raw;
     setPaidAmount(amount);
     setPaidCurrency(customCurrency);
     setCobroStep("vuelto");
@@ -430,7 +435,7 @@ export default function NuevaVentaPage() {
       metodo: "efectivo",
       moneda: paidCurrency,
       pagado: paidAmount,
-      vuelto: changeUYU > 0 ? changeUYU : 0,
+      vuelto: changeUYU > 0 ? roundUYU(changeUYU) : 0,
       vuelto_moneda: "UYU",
     });
   }
@@ -540,7 +545,7 @@ export default function NuevaVentaPage() {
                       {combo.items.map((it) => `${it.cantidad}× ${it.nombre}`).join(" · ")}
                     </div>
                     <div className="font-mono font-bold text-[var(--neon-magenta)] text-lg mt-2">
-                      ${Number(combo.precio).toFixed(2)}
+                      ${roundUYU(Number(combo.precio))}
                     </div>
                   </button>
                 ))}
@@ -562,7 +567,7 @@ export default function NuevaVentaPage() {
                     {p.nombre}
                   </div>
                   <div className="font-mono font-bold text-[var(--neon-cyan)] text-2xl mt-auto">
-                    ${Number(p.precio).toFixed(2)}
+                    ${roundUYU(Number(p.precio))}
                   </div>
                   <div className="text-[10px] text-[var(--text-muted)] font-mono">
                     Stock: {p.stock}
@@ -599,10 +604,11 @@ export default function NuevaVentaPage() {
               </div>
             ) : (
               cart.map((it, idx) => {
-                const subtotal =
+                const subtotal = roundUYU(
                   it.cantidad * it.precio_unitario +
                   (it.includeMonster && it.categoria === "Vasos" ? it.cantidad * MONSTER_PRICE : 0) +
-                  (it.shotExtra || 0);
+                  (it.shotExtra || 0)
+                );
                 const esVaso = it.categoria === "Vasos" && !it.isCombo;
 
                 return (
@@ -641,10 +647,10 @@ export default function NuevaVentaPage() {
                         +
                       </button>
                       <span className="text-[var(--text-muted)] text-[11px] font-mono ml-1 flex-1">
-                        × ${it.precio_unitario}
+                        × ${roundUYU(it.precio_unitario)}
                       </span>
                       <span className="font-bold font-mono text-[var(--neon-magenta)] text-sm">
-                        ${subtotal.toFixed(2)}
+                        ${subtotal}
                       </span>
                     </div>
 
@@ -685,7 +691,7 @@ export default function NuevaVentaPage() {
               <span className="text-[var(--text-muted)] text-xs uppercase tracking-wide">Total</span>
               <div className="text-right">
                 <div className="text-3xl font-bold font-mono neon-text-cyan">
-                  ${total.toFixed(2)} <span className="text-sm font-normal">UYU</span>
+                  ${total} <span className="text-sm font-normal">UYU</span>
                 </div>
                 <div className="text-xs font-mono text-[var(--text-muted)]">
                   ≈ R${(total / exchangeRate).toFixed(2)} BRL
@@ -723,7 +729,7 @@ export default function NuevaVentaPage() {
             <div className="text-center py-3 rounded-xl bg-[var(--cyan-glow)] border border-[var(--neon-cyan)]">
               <div className="text-[var(--text-muted)] text-xs uppercase tracking-wide">Total a cobrar</div>
               <div className="text-4xl font-bold font-mono neon-text-cyan mt-1">
-                ${total.toFixed(2)} <span className="text-base font-normal">UYU</span>
+                ${total} <span className="text-base font-normal">UYU</span>
               </div>
             </div>
 
@@ -737,7 +743,7 @@ export default function NuevaVentaPage() {
                     className="py-5 rounded-2xl border-2 border-[var(--neon-magenta)] bg-[var(--neon-magenta)] text-[var(--deep-dark)] font-bold uppercase tracking-wide shadow-lg hover:brightness-110 active:scale-[0.98] disabled:opacity-50 transition-all"
                   >
                     <div className="text-base leading-tight">PAGO JUSTO</div>
-                    <div className="text-xl font-mono mt-0.5">${total.toFixed(2)}</div>
+                    <div className="text-xl font-mono mt-0.5">${total}</div>
                     <div className="text-[10px] font-normal opacity-80 mt-0.5">UYU · un toque</div>
                   </button>
                   <button
@@ -862,17 +868,17 @@ export default function NuevaVentaPage() {
                 <div className="text-center text-sm text-[var(--text-secondary)]">
                   Pagó con{" "}
                   <span className="font-bold text-[var(--text-primary)]">
-                    {paidCurrency === "UYU" ? `$${paidAmount} UYU` : `R$${paidAmount} BRL`}
+                    {paidCurrency === "UYU" ? `$${roundUYU(paidAmount)} UYU` : `R$${paidAmount} BRL`}
                   </span>
                   {paidCurrency === "BRL" && (
-                    <span className="text-[var(--text-muted)]"> (≈ ${(paidAmount * exchangeRate).toFixed(2)} UYU)</span>
+                    <span className="text-[var(--text-muted)]"> (≈ ${roundUYU(paidAmount * exchangeRate)} UYU)</span>
                   )}
                 </div>
 
                 <div className="text-center py-3 rounded-xl border bg-[var(--magenta-glow)] border-[var(--neon-magenta)]">
                   <div className="text-[var(--text-muted)] text-xs uppercase">{changeUYU < 0 ? "Falta dinero" : "Vuelto a devolver"}</div>
                   <div className={`text-4xl font-bold font-mono mt-1 ${changeUYU < 0 ? "text-[var(--error)]" : "neon-text-magenta"}`}>
-                    ${Math.abs(changeUYU).toFixed(2)}<span className="text-base font-normal ml-1">UYU</span>
+                    ${roundUYU(Math.abs(changeUYU))}<span className="text-base font-normal ml-1">UYU</span>
                   </div>
                 </div>
 
@@ -886,7 +892,7 @@ export default function NuevaVentaPage() {
                         className="py-4 rounded-xl border-2 border-[var(--neon-cyan)] text-[var(--neon-cyan)] font-bold uppercase tracking-wide hover:bg-[var(--neon-cyan)] hover:text-[var(--deep-dark)] disabled:opacity-50 transition-all"
                       >
                         <div>En pesos</div>
-                        <div className="font-mono text-lg mt-0.5">${changeUYU.toFixed(2)}</div>
+                        <div className="font-mono text-lg mt-0.5">${roundUYU(changeUYU)}</div>
                       </button>
                       <button
                         onClick={cobrarVueltoReales}
