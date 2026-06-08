@@ -59,6 +59,10 @@ export interface CashSession {
   total_efectivo_brl: number | null; // BRL neto: Σ(pagado BRL) − Σ(vuelto BRL)
   total_digital: number | null;
   cantidad_ventas: number | null;
+  efectivo_contado_uyu: number | null;  // arqueo: pesos contados al cierre (B28)
+  efectivo_contado_brl: number | null;  // arqueo: reales contados al cierre
+  diferencia_uyu: number | null;        // contado − esperado (pesos); >0 sobra, <0 falta
+  diferencia_brl: number | null;        // contado − esperado (reales)
   created_at: string;
 }
 

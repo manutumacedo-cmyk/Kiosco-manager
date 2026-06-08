@@ -105,12 +105,16 @@ export async function getClosedSessions(limit = 10): Promise<CashSession[]> {
 export async function closeCashSession(
   sessionId: string,
   cerradoPor: string,
-  notas: string | null
+  notas: string | null,
+  contadoUyu: number | null = null,
+  contadoBrl: number | null = null
 ): Promise<void> {
   const { error } = await supabase.rpc("close_cash_session", {
     p_session_id: sessionId,
     p_cerrado_por: cerradoPor.trim(),
     p_notas: notas?.trim() || null,
+    p_efectivo_contado_uyu: contadoUyu,
+    p_efectivo_contado_brl: contadoBrl,
   });
 
   if (error) throw new Error(error.message);
