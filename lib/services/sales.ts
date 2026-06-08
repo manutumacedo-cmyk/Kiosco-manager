@@ -16,6 +16,7 @@ export async function createSale(params: {
   pagado: number | null;
   vuelto: number | null;
   vuelto_moneda?: 'UYU' | 'BRL' | null;
+  tasa_cambio?: number | null;
   session_id?: string | null;
   items: Array<{
     product_id: string;
@@ -41,6 +42,7 @@ export async function createSale(params: {
     p_vuelto: params.vuelto,
     p_vuelto_moneda: params.vuelto_moneda ?? null,
     p_session_id: params.session_id ?? null,
+    p_tasa_cambio: params.tasa_cambio ?? null,
     p_items: params.items.map((it) => ({
       product_id: it.product_id,
       cantidad: it.cantidad,
@@ -84,6 +86,7 @@ async function createSaleFallback(params: {
   pagado: number | null;
   vuelto: number | null;
   vuelto_moneda?: 'UYU' | 'BRL' | null;
+  tasa_cambio?: number | null;
   session_id?: string | null;
   items: Array<{
     product_id: string;
@@ -109,6 +112,7 @@ async function createSaleFallback(params: {
       pagado: params.pagado,
       vuelto: params.vuelto,
       vuelto_moneda: params.vuelto_moneda ?? null,
+      tasa_cambio: params.tasa_cambio ?? null,
       session_id: params.session_id ?? null,
     })
     .select("id")

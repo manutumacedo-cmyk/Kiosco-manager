@@ -21,27 +21,25 @@ export default function NuevaVentaPage() {
   const [q, setQ] = useState("");
   const [categoriaFilter, setCategoriaFilter] = useState<string>("");
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [metodo, setMetodo] = useState("efectivo");
   const [nota, setNota] = useState("");
+  const [showNota, setShowNota] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Calculadora de cambio
+  // Tasa de cambio (se snapshot-ea en cada venta)
   const [exchangeRate, setExchangeRate] = useState(7.5); // BRL -> UYU
-  const [showCalculator, setShowCalculator] = useState(false);
+
+  // Modal de cobro
+  const [showCobrarModal, setShowCobrarModal] = useState(false);
+  const [cobroStep, setCobroStep] = useState<"select" | "vuelto">("select");
   const [paidAmount, setPaidAmount] = useState(0);
   const [paidCurrency, setPaidCurrency] = useState<Currency>("UYU");
-
-  // Monto personalizado
   const [customAmount, setCustomAmount] = useState("");
   const [customCurrency, setCustomCurrency] = useState<Currency>("UYU");
 
-  // Modal de cobro (M10)
-  const [showCobrarModal, setShowCobrarModal] = useState(false);
-
   const searchInputRef = useRef<HTMLInputElement>(null);
-  // "Latest ref" pattern: siempre apunta a la versión actual de guardarVenta
-  // sin necesitar que el useEffect de atajos la liste como dependencia.
-  const guardarVentaRef = useRef(guardarVenta);
+  // "Latest ref" pattern: los atajos llaman a la versión actual sin re-registrar el listener.
+  const abrirCobroRef = useRef(abrirCobro);
+  const pagoJustoRef = useRef(cobrarPagoJusto);
 
   // Shot Extra (monto fijo configurable)
   const SHOT_EXTRA_AMOUNT = 50; // UYU
@@ -79,31 +77,27 @@ export default function NuevaVentaPage() {
 
       // Esc: siempre activo, prioridad modal > búsqueda
       if (e.key === "Escape") {
-        if (showCobrarModal) {
-          setShowCobrarModal(false);
-          setShowCalculator(false);
-          setPaidAmount(0);
-          return;
-        }
+        if (showCobrarModal) { cerrarCobro(); return; }
         if (document.activeElement === searchInputRef.current) {
           setQ("");
           searchInputRef.current?.blur();
-          return;
         }
         return;
       }
 
       // F1–F5: cambiar tab (activos incluso con input enfocado; e.preventDefault evita F5=refresh)
-      if (e.key === "F1" && !showCobrarModal) { e.preventDefault(); setCategoriaFilter(TABS[0]); setQ(""); return; }
-      if (e.key === "F2" && !showCobrarModal) { e.preventDefault(); setCategoriaFilter(TABS[1]); setQ(""); return; }
-      if (e.key === "F3" && !showCobrarModal) { e.preventDefault(); setCategoriaFilter(TABS[2]); setQ(""); return; }
-      if (e.key === "F4" && !showCobrarModal) { e.preventDefault(); setCategoriaFilter(TABS[3]); setQ(""); return; }
-      if (e.key === "F5" && !showCobrarModal) { e.preventDefault(); setCategoriaFilter(TABS[4]); setQ(""); return; }
+      if (!showCobrarModal) {
+        if (e.key === "F1") { e.preventDefault(); setCategoriaFilter(TABS[0]); setQ(""); return; }
+        if (e.key === "F2") { e.preventDefault(); setCategoriaFilter(TABS[1]); setQ(""); return; }
+        if (e.key === "F3") { e.preventDefault(); setCategoriaFilter(TABS[2]); setQ(""); return; }
+        if (e.key === "F4") { e.preventDefault(); setCategoriaFilter(TABS[3]); setQ(""); return; }
+        if (e.key === "F5") { e.preventDefault(); setCategoriaFilter(TABS[4]); setQ(""); return; }
+      }
 
-      // Ctrl+Enter: confirmar venta (solo dentro del modal, con Ctrl para evitar accidentes)
-      if (e.key === "Enter" && e.ctrlKey && showCobrarModal && !saving) {
+      // Ctrl+Enter: PAGO JUSTO (camino expreso), solo en el paso de selección
+      if (e.key === "Enter" && e.ctrlKey && showCobrarModal && cobroStep === "select" && !saving) {
         e.preventDefault();
-        guardarVentaRef.current().then(() => setShowCobrarModal(false));
+        pagoJustoRef.current();
         return;
       }
 
@@ -120,7 +114,7 @@ export default function NuevaVentaPage() {
       // Enter: abrir modal de cobro
       if (e.key === "Enter" && !showCobrarModal && cart.length > 0) {
         e.preventDefault();
-        setShowCobrarModal(true);
+        abrirCobroRef.current();
         return;
       }
 
@@ -134,7 +128,7 @@ export default function NuevaVentaPage() {
 
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [showCobrarModal, cart, saving]);
+  }, [showCobrarModal, cobroStep, cart, saving]);
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -261,49 +255,47 @@ export default function NuevaVentaPage() {
     );
   }
 
-  async function handlePaymentButton(amount: number, currency: Currency) {
-    setPaidAmount(amount);
-    setPaidCurrency(currency);
-    setShowCalculator(true);
+  function resetCobro() {
+    setCobroStep("select");
+    setPaidAmount(0);
+    setPaidCurrency("UYU");
+    setCustomAmount("");
+    setCustomCurrency("UYU");
+    setShowNota(false);
   }
 
-  function handleCustomPayment() {
-    const amount = Number(customAmount);
-    if (!amount || amount <= 0) {
-      toast.warning("Ingresá un monto válido");
-      return;
-    }
-    setPaidAmount(amount);
-    setPaidCurrency(customCurrency);
-    setShowCalculator(true);
+  function abrirCobro() {
+    if (cart.length === 0) return;
+    setNota("");
+    resetCobro();
+    setShowCobrarModal(true);
   }
 
-  const changeCalculation = useMemo(() => {
-    if (paidCurrency === "UYU") {
-      return {
-        totalUYU: total,
-        paidUYU: paidAmount,
-        changeUYU: paidAmount - total,
-      };
-    } else {
-      // Paga en BRL -> convertir a UYU
-      const paidInUYU = paidAmount * exchangeRate;
-      return {
-        totalUYU: total,
-        paidUYU: paidInUYU,
-        changeUYU: paidInUYU - total,
-      };
-    }
+  function cerrarCobro() {
+    setShowCobrarModal(false);
+    resetCobro();
+  }
+
+  // Vuelto en UYU según la moneda con que pagó
+  const changeUYU = useMemo(() => {
+    const paidInUYU = paidCurrency === "UYU" ? paidAmount : paidAmount * exchangeRate;
+    return paidInUYU - total;
   }, [paidAmount, paidCurrency, total, exchangeRate]);
 
-  async function guardarVenta(vuelto_moneda: 'UYU' | 'BRL' | null = null) {
+  // Único punto que registra una venta. Recibe el pago EXPLÍCITO (mata B24/B25:
+  // no hay default ambiente de moneda; cada venta nace de una acción explícita).
+  async function guardarVenta(pago: {
+    metodo: string;
+    moneda: Currency;
+    pagado: number | null;
+    vuelto: number | null;
+    vuelto_moneda: Currency | null;
+  }) {
     if (cart.length === 0) return toast.warning("Carrito vacío");
-    if (!metodo.trim()) return toast.warning("Elegí método de pago");
 
     setSaving(true);
 
     try {
-      // Preparar items para la venta
       const saleItems: Array<{
         product_id: string;
         cantidad: number;
@@ -384,17 +376,14 @@ export default function NuevaVentaPage() {
       }
 
       await createSale({
-        metodo_pago: metodo,
+        metodo_pago: pago.metodo,
         total,
         nota: nota.trim() ? nota.trim() : null,
-        moneda: paidCurrency,
-        pagado: paidAmount > 0 ? paidAmount : null,
-        vuelto: paidAmount > 0 && changeCalculation.changeUYU > 0
-          ? (vuelto_moneda === 'BRL'
-              ? changeCalculation.changeUYU / exchangeRate
-              : changeCalculation.changeUYU)
-          : null,
-        vuelto_moneda: vuelto_moneda,
+        moneda: pago.moneda,
+        pagado: pago.pagado,
+        vuelto: pago.vuelto,
+        vuelto_moneda: pago.vuelto_moneda,
+        tasa_cambio: exchangeRate,
         session_id: openSessionId,
         items: saleItems,
         combos: combosVendidos.length > 0 ? combosVendidos : undefined,
@@ -403,12 +392,8 @@ export default function NuevaVentaPage() {
       toast.success("Venta guardada");
 
       setCart([]);
-      setMetodo("efectivo");
       setNota("");
-      setShowCalculator(false);
-      setPaidAmount(0);
-      setCustomAmount("");
-      setCustomCurrency("UYU");
+      cerrarCobro();
       await loadData();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al guardar venta");
@@ -417,9 +402,48 @@ export default function NuevaVentaPage() {
     }
   }
 
-  // Actualizar la ref en cada render para que el useEffect de atajos
-  // siempre llame a la versión actual sin re-registrar el listener.
-  guardarVentaRef.current = guardarVenta;
+  // Acciones terminales (cada una = un pago explícito y completo)
+  function cobrarPagoJusto() {
+    guardarVenta({ metodo: "efectivo", moneda: "UYU", pagado: total, vuelto: 0, vuelto_moneda: "UYU" });
+  }
+  function cobrarDigital(metodo: string) {
+    guardarVenta({ metodo, moneda: "UYU", pagado: null, vuelto: null, vuelto_moneda: null });
+  }
+  function elegirBillete(amount: number, currency: Currency) {
+    setPaidAmount(amount);
+    setPaidCurrency(currency);
+    setCobroStep("vuelto");
+  }
+  function elegirCustom() {
+    const amount = Number(customAmount);
+    if (!amount || amount <= 0) return toast.warning("Ingresá un monto válido");
+    setPaidAmount(amount);
+    setPaidCurrency(customCurrency);
+    setCobroStep("vuelto");
+  }
+  // Confirmaciones desde el paso "vuelto"
+  function cobrarVueltoPesos() {
+    guardarVenta({
+      metodo: "efectivo",
+      moneda: paidCurrency,
+      pagado: paidAmount,
+      vuelto: changeUYU > 0 ? changeUYU : 0,
+      vuelto_moneda: "UYU",
+    });
+  }
+  function cobrarVueltoReales() {
+    guardarVenta({
+      metodo: "efectivo",
+      moneda: paidCurrency,
+      pagado: paidAmount,
+      vuelto: changeUYU > 0 ? changeUYU / exchangeRate : 0,
+      vuelto_moneda: "BRL",
+    });
+  }
+
+  // Mantener las refs apuntando a la versión actual (para los atajos de teclado).
+  abrirCobroRef.current = abrirCobro;
+  pagoJustoRef.current = cobrarPagoJusto;
 
   const billetsUYU = [50, 100, 200, 500, 1000, 2000];
   const billetsBRL = [5, 10, 20, 50, 100, 200];
@@ -661,7 +685,7 @@ export default function NuevaVentaPage() {
               </span>
             </div>
             <button
-              onClick={() => setShowCobrarModal(true)}
+              onClick={abrirCobro}
               disabled={cart.length === 0}
               className="w-full py-4 text-lg font-bold uppercase tracking-widest rounded-xl border-2 border-[var(--neon-magenta)] text-[var(--neon-magenta)] bg-[var(--magenta-glow)] hover:bg-[var(--neon-magenta)] hover:text-[var(--deep-dark)] disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150"
             >
@@ -676,11 +700,11 @@ export default function NuevaVentaPage() {
         <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
           <div className="bg-[var(--deep-dark)] border border-[var(--neon-magenta)] rounded-2xl p-6 w-full max-w-md shadow-2xl space-y-4 max-h-[90vh] overflow-auto">
 
-            {/* Cabecera modal */}
+            {/* Cabecera */}
             <div className="flex justify-between items-center">
               <h2 className="text-lg font-bold neon-text-magenta uppercase tracking-widest">Cobrar</h2>
               <button
-                onClick={() => { setShowCobrarModal(false); setShowCalculator(false); setPaidAmount(0); }}
+                onClick={cerrarCobro}
                 className="text-[var(--text-muted)] hover:text-[var(--error)] text-2xl leading-none transition-all"
               >
                 ✕
@@ -695,17 +719,33 @@ export default function NuevaVentaPage() {
               </div>
             </div>
 
-            {!showCalculator ? (
-              <div className="space-y-4">
-                {/* Billetes UYU */}
+            {cobroStep === "select" ? (
+              <>
+                {/* NIVEL 1 — PAGO JUSTO (un toque) */}
+                <button
+                  onClick={cobrarPagoJusto}
+                  disabled={saving}
+                  className="w-full py-6 rounded-2xl border-2 border-[var(--neon-magenta)] bg-[var(--neon-magenta)] text-[var(--deep-dark)] font-bold uppercase tracking-widest shadow-lg hover:brightness-110 active:scale-[0.98] disabled:opacity-50 transition-all"
+                >
+                  <div className="text-2xl">{saving ? "PROCESANDO..." : `PAGO JUSTO  $${total.toFixed(2)}`}</div>
+                  <div className="text-xs font-normal tracking-wide mt-0.5 opacity-80">efectivo · pesos · un toque</div>
+                </button>
+
+                {/* divisor */}
+                <div className="flex items-center gap-3 text-[10px] uppercase tracking-widest text-[var(--text-muted)]">
+                  <div className="flex-1 h-px bg-[var(--slate-gray)]" /> pagó con otra cosa <div className="flex-1 h-px bg-[var(--slate-gray)]" />
+                </div>
+
+                {/* NIVEL 2 — billetes UYU */}
                 <div>
-                  <div className="text-[var(--text-muted)] text-[11px] uppercase tracking-wide mb-2">Pesos UYU</div>
+                  <div className="text-[var(--text-muted)] text-[11px] uppercase tracking-wide mb-2">Billetes $ (pesos)</div>
                   <div className="grid grid-cols-3 gap-2">
                     {billetsUYU.map((amount) => (
                       <button
                         key={amount}
-                        onClick={() => handlePaymentButton(amount, "UYU")}
-                        className="py-3 text-sm font-bold rounded-lg border border-[var(--neon-magenta)] text-[var(--neon-magenta)] hover:bg-[var(--neon-magenta)] hover:text-[var(--deep-dark)] transition-all"
+                        onClick={() => elegirBillete(amount, "UYU")}
+                        disabled={saving}
+                        className="py-2.5 text-sm font-bold rounded-lg border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--neon-magenta)] hover:text-[var(--neon-magenta)] disabled:opacity-50 transition-all"
                       >
                         ${amount}
                       </button>
@@ -713,15 +753,16 @@ export default function NuevaVentaPage() {
                   </div>
                 </div>
 
-                {/* Billetes BRL */}
+                {/* NIVEL 2 — billetes BRL */}
                 <div>
-                  <div className="text-[var(--text-muted)] text-[11px] uppercase tracking-wide mb-2">Reales BRL</div>
+                  <div className="text-[var(--text-muted)] text-[11px] uppercase tracking-wide mb-2">Billetes R$ (reales)</div>
                   <div className="grid grid-cols-3 gap-2">
                     {billetsBRL.map((amount) => (
                       <button
                         key={amount}
-                        onClick={() => handlePaymentButton(amount, "BRL")}
-                        className="py-3 text-sm font-bold rounded-lg border border-[var(--neon-cyan)] text-[var(--neon-cyan)] hover:bg-[var(--neon-cyan)] hover:text-[var(--deep-dark)] transition-all"
+                        onClick={() => elegirBillete(amount, "BRL")}
+                        disabled={saving}
+                        className="py-2.5 text-sm font-bold rounded-lg border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)] disabled:opacity-50 transition-all"
                       >
                         R${amount}
                       </button>
@@ -729,10 +770,10 @@ export default function NuevaVentaPage() {
                   </div>
                 </div>
 
-                {/* Monto personalizado */}
+                {/* NIVEL 2 — monto custom */}
                 <div className="flex gap-2 items-end">
                   <div className="flex-1">
-                    <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Monto personalizado</div>
+                    <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Otro monto</div>
                     <input
                       className="cyber-input w-full text-sm font-mono"
                       type="number"
@@ -755,102 +796,107 @@ export default function NuevaVentaPage() {
                     </select>
                   </div>
                   <button
-                    onClick={handleCustomPayment}
-                    disabled={!customAmount || Number(customAmount) <= 0}
-                    className="py-2 px-3 text-xs font-bold rounded-lg border border-[var(--neon-cyan)] text-[var(--neon-cyan)] hover:bg-[var(--neon-cyan)] hover:text-[var(--deep-dark)] disabled:opacity-40 transition-all whitespace-nowrap"
+                    onClick={elegirCustom}
+                    disabled={!customAmount || Number(customAmount) <= 0 || saving}
+                    className="py-2 px-3 text-xs font-bold rounded-lg border border-[var(--text-secondary)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)] disabled:opacity-40 transition-all whitespace-nowrap"
                   >
                     Calcular
                   </button>
                 </div>
-              </div>
-            ) : (
-              /* Vuelto */
-              <div className="border border-[var(--neon-magenta)] rounded-xl p-5 bg-[var(--magenta-glow)] text-center space-y-3">
-                <div>
-                  <div className="text-[var(--text-muted)] text-xs uppercase">Pagó con</div>
-                  <div className="text-xl font-bold font-mono text-[var(--text-primary)] mt-1">
-                    {paidCurrency === "UYU" ? `$${paidAmount} UYU` : `R$${paidAmount} BRL`}
+
+                {/* NIVEL 3 — digital */}
+                <div className="border-t border-[var(--slate-gray)] pt-3">
+                  <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide mb-2">Pago digital</div>
+                  <div className="grid grid-cols-4 gap-2">
+                    {([["debito", "Débito"], ["credito", "Crédito"], ["transferencia", "Transf."], ["mercadopago", "MP"]] as const).map(([val, label]) => (
+                      <button
+                        key={val}
+                        onClick={() => cobrarDigital(val)}
+                        disabled={saving}
+                        className="py-2 text-[11px] font-semibold rounded-lg border border-[var(--slate-gray)] text-[var(--text-muted)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)] disabled:opacity-50 transition-all"
+                      >
+                        {label}
+                      </button>
+                    ))}
                   </div>
-                  {paidCurrency === "BRL" && (
-                    <div className="text-xs text-[var(--text-secondary)] mt-0.5">
-                      ≈ ${changeCalculation.paidUYU.toFixed(2)} UYU
-                    </div>
-                  )}
                 </div>
-                <div className="pt-3 border-t border-[var(--neon-magenta)]">
-                  <div className="text-[var(--text-muted)] text-xs uppercase">Cambio a devolver</div>
-                  <div className={`text-5xl font-bold font-mono mt-1 ${
-                    changeCalculation.changeUYU >= 0 ? "neon-text-magenta" : "text-[var(--error)]"
-                  }`}>
-                    ${Math.abs(changeCalculation.changeUYU).toFixed(2)}
-                    <span className="text-lg font-normal ml-1">UYU</span>
-                  </div>
-                  {changeCalculation.changeUYU < 0 && (
-                    <div className="text-xs text-[var(--error)] mt-1">Falta dinero</div>
-                  )}
-                </div>
-                {metodo === "efectivo" && paidCurrency === "BRL" && changeCalculation.changeUYU > 0 && (
-                  <div className="flex flex-col gap-2">
-                    <button
-                      onClick={async () => { await guardarVenta("UYU"); setShowCobrarModal(false); }}
-                      disabled={saving}
-                      className="w-full py-3 text-sm font-bold uppercase tracking-widest rounded-xl border-2 border-[var(--neon-cyan)] text-[var(--neon-cyan)] hover:bg-[var(--neon-cyan)] hover:text-[var(--deep-dark)] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150"
-                    >
-                      {saving ? "PROCESANDO..." : `Di el vuelto en PESOS ($${changeCalculation.changeUYU.toFixed(2)} UYU)`}
-                    </button>
-                    <button
-                      onClick={async () => { await guardarVenta("BRL"); setShowCobrarModal(false); }}
-                      disabled={saving}
-                      className="w-full py-3 text-sm font-bold uppercase tracking-widest rounded-xl border-2 border-[var(--neon-magenta)] text-[var(--neon-magenta)] bg-[var(--magenta-glow)] hover:bg-[var(--neon-magenta)] hover:text-[var(--deep-dark)] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150"
-                    >
-                      {saving ? "PROCESANDO..." : `Di el vuelto en REALES (R$${(changeCalculation.changeUYU / exchangeRate).toFixed(2)} BRL)`}
-                    </button>
-                  </div>
+
+                {/* NIVEL 3 — nota */}
+                {showNota ? (
+                  <input
+                    className="cyber-input text-sm w-full"
+                    placeholder="Nota..."
+                    value={nota}
+                    onChange={(e) => setNota(e.target.value)}
+                    autoFocus
+                  />
+                ) : (
+                  <button onClick={() => setShowNota(true)} className="text-xs text-[var(--text-muted)] hover:text-[var(--neon-cyan)] transition-all">
+                    + Nota
+                  </button>
                 )}
+              </>
+            ) : (
+              /* ── PASO VUELTO ── */
+              <div className="space-y-4">
+                <div className="text-center text-sm text-[var(--text-secondary)]">
+                  Pagó con{" "}
+                  <span className="font-bold text-[var(--text-primary)]">
+                    {paidCurrency === "UYU" ? `$${paidAmount} UYU` : `R$${paidAmount} BRL`}
+                  </span>
+                  {paidCurrency === "BRL" && (
+                    <span className="text-[var(--text-muted)]"> (≈ ${(paidAmount * exchangeRate).toFixed(2)} UYU)</span>
+                  )}
+                </div>
+
+                <div className="text-center py-3 rounded-xl border bg-[var(--magenta-glow)] border-[var(--neon-magenta)]">
+                  <div className="text-[var(--text-muted)] text-xs uppercase">{changeUYU < 0 ? "Falta dinero" : "Vuelto a devolver"}</div>
+                  <div className={`text-4xl font-bold font-mono mt-1 ${changeUYU < 0 ? "text-[var(--error)]" : "neon-text-magenta"}`}>
+                    ${Math.abs(changeUYU).toFixed(2)}<span className="text-base font-normal ml-1">UYU</span>
+                  </div>
+                </div>
+
+                {changeUYU < 0 ? null : paidCurrency === "BRL" && changeUYU > 0 ? (
+                  <>
+                    <div className="text-center text-xs text-[var(--text-secondary)]">¿En qué moneda le das el vuelto?</div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={cobrarVueltoPesos}
+                        disabled={saving}
+                        className="py-4 rounded-xl border-2 border-[var(--neon-cyan)] text-[var(--neon-cyan)] font-bold uppercase tracking-wide hover:bg-[var(--neon-cyan)] hover:text-[var(--deep-dark)] disabled:opacity-50 transition-all"
+                      >
+                        <div>En pesos</div>
+                        <div className="font-mono text-lg mt-0.5">${changeUYU.toFixed(2)}</div>
+                      </button>
+                      <button
+                        onClick={cobrarVueltoReales}
+                        disabled={saving}
+                        className="py-4 rounded-xl border-2 border-[var(--neon-magenta)] bg-[var(--magenta-glow)] text-[var(--neon-magenta)] font-bold uppercase tracking-wide hover:bg-[var(--neon-magenta)] hover:text-[var(--deep-dark)] disabled:opacity-50 transition-all"
+                      >
+                        <div>En reales</div>
+                        <div className="font-mono text-lg mt-0.5">R${(changeUYU / exchangeRate).toFixed(2)}</div>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <button
+                    onClick={cobrarVueltoPesos}
+                    disabled={saving}
+                    className="w-full py-4 rounded-xl border-2 border-[var(--neon-magenta)] bg-[var(--neon-magenta)] text-[var(--deep-dark)] font-bold uppercase tracking-widest hover:brightness-110 active:scale-[0.98] disabled:opacity-50 transition-all"
+                  >
+                    {saving ? "PROCESANDO..." : "Cobrar y cerrar"}
+                  </button>
+                )}
+
                 <button
-                  onClick={() => setShowCalculator(false)}
+                  onClick={() => setCobroStep("select")}
+                  disabled={saving}
                   className="text-xs py-2 px-4 rounded-lg border border-[var(--slate-gray)] text-[var(--text-muted)] hover:border-[var(--text-secondary)] transition-all"
                 >
                   ← Cambiar billete
                 </button>
               </div>
             )}
-
-            {/* Método + nota + confirmar */}
-            <div className="border-t border-[var(--slate-gray)] pt-4 space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Método de pago</div>
-                  <select
-                    className="cyber-input text-sm w-full"
-                    value={metodo}
-                    onChange={(e) => setMetodo(e.target.value)}
-                  >
-                    <option value="efectivo">Efectivo</option>
-                    <option value="debito">Débito</option>
-                    <option value="credito">Crédito</option>
-                    <option value="transferencia">Transferencia</option>
-                    <option value="mercadopago">MercadoPago</option>
-                  </select>
-                </div>
-                <div>
-                  <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Nota (opcional)</div>
-                  <input
-                    className="cyber-input text-sm w-full"
-                    placeholder="..."
-                    value={nota}
-                    onChange={(e) => setNota(e.target.value)}
-                  />
-                </div>
-              </div>
-              <button
-                onClick={async () => { await guardarVenta(null); setShowCobrarModal(false); }}
-                disabled={saving}
-                className="w-full py-4 text-base font-bold uppercase tracking-widest rounded-xl border-2 border-[var(--neon-magenta)] text-[var(--neon-magenta)] bg-[var(--magenta-glow)] hover:bg-[var(--neon-magenta)] hover:text-[var(--deep-dark)] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150"
-              >
-                {saving ? "PROCESANDO..." : "CONFIRMAR VENTA"}
-              </button>
-            </div>
           </div>
         </div>
       )}
