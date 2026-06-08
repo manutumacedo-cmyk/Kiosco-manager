@@ -51,6 +51,16 @@ CREATE TABLE IF NOT EXISTS cash_sessions (
   total_efectivo_brl  NUMERIC(10,2),  -- BRL neto: Σ(pagado BRL) − Σ(vuelto BRL)
   total_digital       NUMERIC(10,2),
   cantidad_ventas     INTEGER,
+  -- Arqueo de caja (B28): efectivo físico contado al cierre + diferencia (contado − esperado).
+  -- esperado = fondo inicial + efectivo neto del turno. >0 sobra · <0 falta · 0 cuadra.
+  efectivo_contado_uyu NUMERIC(10,2),
+  efectivo_contado_brl NUMERIC(10,2),
+  diferencia_uyu      NUMERIC(10,2) GENERATED ALWAYS AS (
+                        efectivo_contado_uyu - (monto_inicial + COALESCE(total_efectivo_uyu, 0))
+                      ) STORED,
+  diferencia_brl      NUMERIC(10,2) GENERATED ALWAYS AS (
+                        efectivo_contado_brl - (monto_inicial_brl + COALESCE(total_efectivo_brl, 0))
+                      ) STORED,
   created_at          TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
 
