@@ -47,6 +47,8 @@ export default function CajaPage() {
   // Cerrar turno
   const [cerradoPor, setCerradoPor] = useState("");
   const [notas, setNotas] = useState("");
+  const [contadoUyu, setContadoUyu] = useState("");
+  const [contadoBrl, setContadoBrl] = useState("");
   const [closing, setClosing] = useState(false);
   const [closedSessions, setClosedSessions] = useState<CashSession[]>([]);
 
@@ -115,11 +117,16 @@ export default function CajaPage() {
     setClosing(true);
     setError(null);
     try {
-      await closeCashSession(session.id, cerradoPor, notas || null);
+      await closeCashSession(
+        session.id, cerradoPor, notas || null,
+        contadoUyuNum, hayMovimientoBrl ? contadoBrlNum : null
+      );
       setSession(null);
       setTotals(null);
       setCerradoPor("");
       setNotas("");
+      setContadoUyu("");
+      setContadoBrl("");
       setPageState("cerrada");
       const history = await getClosedSessions(10);
       setClosedSessions(history);
@@ -138,6 +145,25 @@ export default function CajaPage() {
     : 0;
   const hayDescuadre =
     !!totals && Math.abs(descuadreInvariante) > 1 + totals.cantidad_ventas * 0.05;
+
+  // Arqueo (B28): comparar lo contado contra lo esperado por cajón.
+  const esperadoUyu = (session?.monto_inicial ?? 0) + (totals?.total_efectivo_uyu ?? 0);
+  const esperadoBrl = (session?.monto_inicial_brl ?? 0) + (totals?.total_efectivo_brl ?? 0);
+  // Solo se exige contar reales si hubo fondo o movimiento en BRL.
+  const hayMovimientoBrl = (session?.monto_inicial_brl ?? 0) > 0 || (totals?.total_efectivo_brl ?? 0) !== 0;
+
+  const contadoUyuNum = contadoUyu.trim() === "" ? null : Math.round(Number(contadoUyu)); // pesos enteros
+  const contadoBrlNum = contadoBrl.trim() === "" ? null : Number(contadoBrl);             // reales con centavos
+  const difUyu = contadoUyuNum === null ? null : contadoUyuNum - esperadoUyu;
+  const difBrl = contadoBrlNum === null ? null : contadoBrlNum - esperadoBrl;
+
+  const arqueoDescuadra =
+    (difUyu !== null && difUyu !== 0) ||
+    (hayMovimientoBrl && difBrl !== null && Math.abs(difBrl) >= 0.005);
+
+  const faltaContado = contadoUyu.trim() === "" || (hayMovimientoBrl && contadoBrl.trim() === "");
+  const faltaNotaPorDescuadre = arqueoDescuadra && !notas.trim();
+  const cierreBloqueado = closing || !cerradoPor.trim() || faltaContado || faltaNotaPorDescuadre;
 
   if (pageState === "loading") {
     return (
@@ -299,6 +325,8 @@ export default function CajaPage() {
           <button
             onClick={() => {
               setCerradoPor(session.cajero);
+              setContadoUyu("");
+              setContadoBrl("");
               setPageState("cerrando");
             }}
             className="w-full py-3 rounded-lg font-bold uppercase tracking-wide transition-all border border-[var(--error)] text-[var(--error)] hover:bg-[rgba(255,59,59,0.08)]"
@@ -381,6 +409,59 @@ export default function CajaPage() {
             )}
           </div>
 
+          {/* Arqueo — contá la caja */}
+          <div className="data-card bg-[var(--carbon-gray)] border border-[var(--slate-gray)] rounded-xl p-6 space-y-4">
+            <h2 className="text-sm uppercase tracking-wide text-[var(--text-secondary)] font-semibold">
+              Arqueo · contá la caja
+            </h2>
+
+            <div className="space-y-1.5">
+              <label className="block text-sm text-[var(--text-secondary)]">Efectivo contado $ (pesos)</label>
+              <input
+                type="number" min="0" step="1" inputMode="numeric"
+                value={contadoUyu}
+                onChange={(e) => setContadoUyu(e.target.value)}
+                placeholder="0"
+                className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors"
+              />
+              <div className="flex justify-between text-xs">
+                <span className="text-[var(--text-secondary)]">Esperado: $ {fmt(esperadoUyu)}</span>
+                {difUyu !== null && (
+                  <span className={difUyu === 0 ? "text-[var(--success)]" : difUyu > 0 ? "text-[var(--warning)]" : "text-[var(--error)]"}>
+                    {difUyu === 0 ? "✅ Cuadra" : difUyu > 0 ? `🟡 Sobra $ ${fmt(difUyu)}` : `🔴 Falta $ ${fmt(Math.abs(difUyu))}`}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {hayMovimientoBrl && (
+              <div className="space-y-1.5">
+                <label className="block text-sm text-[var(--text-secondary)]">Efectivo contado R$ (reales)</label>
+                <input
+                  type="number" min="0" step="0.01" inputMode="decimal"
+                  value={contadoBrl}
+                  onChange={(e) => setContadoBrl(e.target.value)}
+                  placeholder="0,00"
+                  className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors"
+                />
+                <div className="flex justify-between text-xs">
+                  <span className="text-[var(--text-secondary)]">Esperado: R$ {fmtBRL(esperadoBrl)}</span>
+                  {difBrl !== null && (
+                    <span className={Math.abs(difBrl) < 0.005 ? "text-[var(--success)]" : difBrl > 0 ? "text-[var(--warning)]" : "text-[var(--error)]"}>
+                      {Math.abs(difBrl) < 0.005 ? "✅ Cuadra" : difBrl > 0 ? `🟡 Sobra R$ ${fmtBRL(difBrl)}` : `🔴 Falta R$ ${fmtBRL(Math.abs(difBrl))}`}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {arqueoDescuadra && (
+              <p className="text-xs text-[var(--warning)]">
+                Hay diferencia con lo esperado. Dejá una nota explicando el descuadre para poder cerrar.
+              </p>
+            )}
+          </div>
+
           {/* Formulario de cierre */}
           <div className="data-card bg-[var(--carbon-gray)] border border-[var(--slate-gray)] rounded-xl p-6">
             <form onSubmit={handleClose} className="space-y-4">
@@ -400,7 +481,7 @@ export default function CajaPage() {
               </div>
               <div className="space-y-2">
                 <label className="block text-sm uppercase tracking-wide text-[var(--text-secondary)]">
-                  Notas (opcional)
+                  {arqueoDescuadra ? "Notas · explicá el descuadre (obligatorio)" : "Notas (opcional)"}
                 </label>
                 <textarea
                   value={notas}
@@ -410,6 +491,13 @@ export default function CajaPage() {
                   className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors resize-none"
                 />
               </div>
+              {cierreBloqueado && !closing && (
+                <p className="text-xs text-[var(--text-muted)]">
+                  {!cerradoPor.trim() ? "Completá quién cierra."
+                    : faltaContado ? "Ingresá el efectivo contado para cerrar."
+                    : faltaNotaPorDescuadre ? "Hay descuadre: dejá una nota explicándolo." : ""}
+                </p>
+              )}
               <div className="flex gap-3 pt-1">
                 <button
                   type="button"
@@ -420,7 +508,7 @@ export default function CajaPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={closing || !cerradoPor.trim()}
+                  disabled={cierreBloqueado}
                   className="flex-1 py-3 rounded-lg font-bold uppercase tracking-wide transition-all border border-[var(--error)] text-[var(--error)] hover:bg-[rgba(255,59,59,0.08)] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {closing ? "Cerrando..." : "Confirmar cierre"}
@@ -482,6 +570,20 @@ export default function CajaPage() {
                     <p className="text-[var(--text-secondary)] text-xs">
                       {s.cantidad_ventas ?? 0} ventas
                     </p>
+                    {s.diferencia_uyu != null && s.diferencia_uyu !== 0 && (
+                      <p className={`text-xs font-semibold ${s.diferencia_uyu > 0 ? "text-[var(--warning)]" : "text-[var(--error)]"}`}>
+                        {s.diferencia_uyu > 0 ? `Sobró $ ${fmt(s.diferencia_uyu)}` : `Faltó $ ${fmt(Math.abs(s.diferencia_uyu))}`}
+                      </p>
+                    )}
+                    {s.diferencia_brl != null && Math.abs(s.diferencia_brl) >= 0.005 && (
+                      <p className={`text-xs font-semibold ${s.diferencia_brl > 0 ? "text-[var(--warning)]" : "text-[var(--error)]"}`}>
+                        {s.diferencia_brl > 0 ? `Sobró R$ ${fmtBRL(s.diferencia_brl)}` : `Faltó R$ ${fmtBRL(Math.abs(s.diferencia_brl))}`}
+                      </p>
+                    )}
+                    {s.efectivo_contado_uyu != null && (s.diferencia_uyu ?? 0) === 0 &&
+                      (s.diferencia_brl == null || Math.abs(s.diferencia_brl) < 0.005) && (
+                      <p className="text-[var(--success)] text-xs">✓ cuadró</p>
+                    )}
                   </div>
                 </div>
               </div>
