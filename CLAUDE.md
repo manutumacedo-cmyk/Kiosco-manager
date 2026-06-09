@@ -39,16 +39,16 @@ Se cobra en pesos uruguayos (UYU) y reales brasileños (BRL).
 - sale_items NO tiene FK a products (intencional, por los combos)
 
 ## Tarea actual
-Fix del cuadre cross-moneda (B23, B24, B25) — modelo de "dos cajones, movimiento
-neto" aprobado, con 3 decisiones: vuelto mixto prohibido en v1, columnas generadas
-en la DB, invariante de consistencia como aviso visible en el cierre. Wireframe del
-nuevo modal de cobro aprobado (botón "PAGO JUSTO $" dominante, un toque).
+Pasada de endurecimiento pre-producción (bugs B18–B31). **Hoy arranca la prueba en local.**
 
-Orden de implementación (un paso a la vez, verificar + commit entre cada uno):
-1. Schema — 3 columnas nuevas en `sales`: `tasa_cambio`, `mov_efectivo_uyu`
-   (generada), `mov_efectivo_brl` (generada). ← próximo paso
-2. RPC `create_sale_atomic` (recibe `tasa_cambio`, exige `pagado/vuelto` no-null en efectivo)
-3. Cierre — `close_cash_session` + `getSessionTotals` suman los `mov_*` + invariante
-4. POS — flujo del modal de cobro nuevo
+✅ Cerrado: cuadre cross-moneda (B23, B24, B25), tasa por venta (B29) y arqueo de
+efectivo contado al cierre (B28, pasos 1-4). El arqueo guarda `efectivo_contado_uyu/brl`
+y `diferencia_*`, muestra diferencia en vivo, exige nota si hay descuadre, y el historial
+indica Sobró/Faltó/✓ cuadró.
 
-Decidido: "PAGO JUSTO $" cobra en un solo toque (registra y cierra, sin micro-confirm).
+⏳ Críticos (🔴) que quedan sin resolver:
+- **B18** — venta duplicada al reintentar tras corte de red (falta idempotencia en `createSale`).
+- **B26** — anular una venta tras el cierre desincroniza el snapshot del turno
+  (`cancel_sale` no chequea turno cerrado).
+
+Otros pendientes no-críticos: B19, B21, B22, B27, B30 (🟠/🟡) y B31 (carpeta `web/` duplicada).

@@ -213,7 +213,12 @@
 
 ### Flujo de caja
 
-#### B23 · El cajón de PESOS queda corto: el vuelto en pesos sobre ventas en reales no se resta 🔴
+#### B23 · El cajón de PESOS queda corto: el vuelto en pesos sobre ventas en reales no se resta 🔴 — ✅ RESUELTO
+> **Update:** modelo "dos cajones, movimiento neto". `sales` guarda `tasa_cambio` y las columnas
+> generadas `mov_efectivo_uyu` / `mov_efectivo_brl` (netean el vuelto por cajón). `close_cash_session`
+> y `getSessionTotals` suman esos `mov_*`, con un invariante de consistencia visible en el cierre.
+> Vuelto mixto prohibido en v1.
+
 - **Dónde:** [`close_cash_session`](../lib/sql/00-schema-completo.sql#L369) (efectivo UYU = `Σ(total)`
   solo de `moneda='UYU'`, línea 371) · [`getSessionTotals`](../lib/services/cashSessions.ts#L43) ·
   display en [`app/caja/page.tsx`](../app/caja/page.tsx#L349) · elección de moneda del vuelto en el
@@ -225,7 +230,10 @@
   todos los vueltos en pesos dados sobre ventas en reales. **El cajón de pesos falta todas las noches**
   y nadie puede explicarlo. Rompe la prioridad #2 (que la caja cuadre).
 
-#### B24 · `paidCurrency` no se resetea entre ventas → ventas en pesos grabadas como BRL 🔴
+#### B24 · `paidCurrency` no se resetea entre ventas → ventas en pesos grabadas como BRL 🔴 — ✅ RESUELTO
+> **Update:** el nuevo flujo de cobro exige `pagado`/`vuelto` no-null en efectivo y la RPC
+> `create_sale_atomic` los valida; el POS resetea la moneda entre ventas. Cerrado junto con B23/B25.
+
 - **Dónde:** reset post-venta en [`app/ventas/nueva/page.tsx`](../app/ventas/nueva/page.tsx#L405)
   (limpia todo menos `paidCurrency`) · estado en [línea 32](../app/ventas/nueva/page.tsx#L32) ·
   se pasa como `moneda` en [línea 390](../app/ventas/nueva/page.tsx#L390).
@@ -235,7 +243,10 @@
   desaparece de ambos baldes, el cajón de pesos queda de más y `total_ventas ≠ efectivo+digital+brl`.
   Se dispara con una secuencia trivial (una venta en reales y todas las siguientes "rápidas" salen mal).
 
-#### B25 · La calculadora es opcional → cobro en reales registrado como pesos 🔴
+#### B25 · La calculadora es opcional → cobro en reales registrado como pesos 🔴 — ✅ RESUELTO
+> **Update:** nuevo modal de cobro con "PAGO JUSTO $" dominante; el cobro fija explícitamente la moneda
+> y exige `pagado`/`vuelto`. Ya no hay camino rápido que grabe reales como pesos. Cerrado con B23/B24.
+
 - **Dónde:** default `paidCurrency='UYU'` en [`app/ventas/nueva/page.tsx`](../app/ventas/nueva/page.tsx#L32) ·
   camino rápido CONFIRMAR VENTA en [línea 846](../app/ventas/nueva/page.tsx#L846).
 - **Qué pasa:** El camino rápido es confirmar sin abrir la calculadora; eso deja `moneda='UYU'`. Si el
@@ -260,7 +271,12 @@
 - **Impacto:** Esa venta no aparece en ningún turno. Plata cobrada, nunca cuadrada. Edge, pero ocurre
   justo en el relevo nocturno.
 
-#### B28 · El cierre no pide el efectivo contado real ni calcula diferencia 🟠
+#### B28 · El cierre no pide el efectivo contado real ni calcula diferencia 🟠 — ✅ RESUELTO
+> **Update:** `cash_sessions` tiene `efectivo_contado_uyu/brl` y columnas de `diferencia_*`;
+> `close_cash_session` recibe el efectivo contado. El cierre pide contar la caja (pesos y reales si
+> hubo movimiento BRL), muestra la diferencia en vivo, exige nota si hay descuadre y el historial
+> indica Sobró/Faltó/✓ cuadró. Pasos 1-4 commiteados.
+
 - **Dónde:** resumen de cierre en [`app/caja/page.tsx`](../app/caja/page.tsx#L347) (solo muestra el
   monto esperado) · `cash_sessions` sin columnas de contado/descuadre en
   [`lib/sql/00-schema-completo.sql`](../lib/sql/00-schema-completo.sql#L48).
@@ -271,7 +287,10 @@
 
 ### Datos críticos
 
-#### B29 · No se guarda la tasa de cambio usada en cada venta 🔴
+#### B29 · No se guarda la tasa de cambio usada en cada venta 🔴 — ✅ RESUELTO
+> **Update:** `sales.tasa_cambio` guarda el cambio usado por venta; `create_sale_atomic` lo recibe y
+> el POS lo envía. Permite reconstruir el valor UYU de las ventas en BRL. Cerrado junto al cuadre (B23).
+
 - **Dónde:** `exchange_rate_config` es una sola fila mutable en
   [`lib/services/combos.ts`](../lib/services/combos.ts#L134) · `sales` no tiene columna de tasa en
   [`lib/sql/00-schema-completo.sql`](../lib/sql/00-schema-completo.sql#L57).
@@ -326,5 +345,6 @@ Lo que **más urge** para que funcione en la vida real:
 4. **Red de seguridad** (B8/M5, B5/M7) — prevención de cortes y seguridad.
 
 > **Pasada pre-producción (2026-06-01) — ver B18–B31.** Bloqueantes del primer uso real, por urgencia:
-> el **cuadre cross-moneda** (B23, B24, B25), el **arqueo real al cierre** (B28) y el **reintento
-> seguro de venta** (B18). Esos tres definen si la caja cuadra la noche uno.
+> el **cuadre cross-moneda** (B23, B24, B25) ✅, el **arqueo real al cierre** (B28) ✅ y el **reintento
+> seguro de venta** (B18) ⏳. De los tres que definen la noche uno, falta solo B18 (idempotencia).
+> Crítico restante sin resolver: **B26** (anular tras el cierre desincroniza el snapshot del turno).
