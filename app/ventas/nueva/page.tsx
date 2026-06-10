@@ -4,8 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import type { Product, CartItem, CategoryType, ComboWithProducts } from "@/types";
-import { CATEGORIES } from "@/types";
 import { fetchActiveProducts } from "@/lib/services/products";
+import { fetchCategories } from "@/lib/services/categories";
 import { createSale } from "@/lib/services/sales";
 import { fetchActiveCombos, getExchangeRate, convertBRLtoUYU } from "@/lib/services/combos";
 import { getOpenSession } from "@/lib/services/cashSessions";
@@ -31,6 +31,7 @@ export default function NuevaVentaPage() {
   const toast = useToast();
   const [products, setProducts] = useState<Product[]>([]);
   const [combos, setCombos] = useState<ComboWithProducts[]>([]);
+  const [categories, setCategories] = useState<CategoryType[]>([]);
   const [openSessionId, setOpenSessionId] = useState<string | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
   const [q, setQ] = useState("");
@@ -70,17 +71,19 @@ export default function NuevaVentaPage() {
 
   async function loadData() {
     try {
-      const [productsData, combosData, rate, session] = await Promise.all([
+      const [productsData, combosData, rate, session, cats] = await Promise.all([
         fetchActiveProducts(),
         fetchActiveCombos(),
         getExchangeRate(),
         getOpenSession(),
+        fetchCategories(),
       ]);
       setProducts(productsData);
       setCombos(combosData);
       setExchangeRate(rate);
       setOpenSessionId(session?.id ?? null);
       setSessionChecked(true);
+      setCategories(cats);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al cargar datos");
     }
@@ -92,7 +95,7 @@ export default function NuevaVentaPage() {
 
   // Atajos de teclado — M1
   useEffect(() => {
-    const TABS = [...CATEGORIES, "Combos"] as string[];
+    const TABS = [...categories, "Combos"] as string[];
 
     function onKeyDown(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement).tagName;
@@ -477,7 +480,7 @@ export default function NuevaVentaPage() {
   const billetsBRL = [5, 10, 20, 50, 100, 200];
 
   // Tab activo: repropósita categoriaFilter; "" equivale a primera categoría
-  const activeTab = categoriaFilter || CATEGORIES[0];
+  const activeTab = categoriaFilter || categories[0] || "";
   // Grilla: todos los productos de la categoría activa (sin límite de 25);
   // si hay búsqueda activa, usa filtered con sus resultados de texto
   const gridProducts = q.trim()
@@ -533,7 +536,7 @@ export default function NuevaVentaPage() {
 
       {/* ── TABS DE CATEGORÍA ── */}
       <div className="flex gap-2 px-4 py-2 border-b border-[var(--slate-gray)] flex-shrink-0">
-        {([...CATEGORIES, "Combos"] as string[]).map((cat, i) => (
+        {([...categories, "Combos"] as string[]).map((cat, i) => (
           <button
             key={cat}
             onClick={() => { setCategoriaFilter(cat); setQ(""); }}

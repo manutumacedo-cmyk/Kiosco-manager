@@ -30,6 +30,6 @@ export type PaymentMethod =
   | "transferencia"
   | "mercadopago";
 
-export type CategoryType = "Bebidas" | "Alimento" | "Vasos" | "Otros";
+export type CategoryType = string;
 
-export const CATEGORIES: CategoryType[] = ["Bebidas", "Alimento", "Vasos", "Otros"];
+export const CATEGORIES: CategoryType[] = ["Bebidas", "Alimento", "Vasos", "Otros", "Cigarrillos"];

@@ -18,7 +18,7 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import ReposicionTab from "./ReposicionTab";
 import type { Product, ProductDraft, SortMode, TabMode, CategoryType } from "@/types";
-import { CATEGORIES } from "@/types";
+import { fetchCategories, createCategory } from "@/lib/services/categories";
 import {
   fetchProducts,
   createProduct,
@@ -67,6 +67,12 @@ export default function ProductosPage() {
   /** Estado para diálogo de confirmación de eliminación */
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; nombre: string } | null>(null);
 
+  /** Categorías dinámicas desde DB */
+  const [categories, setCategories] = useState<CategoryType[]>([]);
+  const [showNewCatModal, setShowNewCatModal] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [savingCat, setSavingCat] = useState(false);
+
   /** =========================
    * 5) CARGA INICIAL DESDE SUPABASE
    * ========================= */
@@ -98,7 +104,27 @@ export default function ProductosPage() {
 
   useEffect(() => {
     loadProducts();
+    fetchCategories().then(setCategories).catch(() => {});
   }, []);
+
+  async function handleCreateCategory() {
+    const nombre = newCatName.trim();
+    if (!nombre) return toast.warning("Ingresá el nombre de la categoría");
+    if (categories.includes(nombre)) return toast.warning("Esa categoría ya existe");
+    setSavingCat(true);
+    try {
+      await createCategory(nombre);
+      const updated = await fetchCategories();
+      setCategories(updated);
+      setNewCatName("");
+      setShowNewCatModal(false);
+      toast.success(`Categoría "${nombre}" creada`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al crear categoría");
+    } finally {
+      setSavingCat(false);
+    }
+  }
 
   /** =========================
    * 6) CREAR PRODUCTO NUEVO
@@ -414,7 +440,7 @@ export default function ProductosPage() {
                 onChange={(e) => setCategoriaFilter(e.target.value)}
               >
                 <option value="">Todas las categorías</option>
-                {CATEGORIES.map((cat) => (
+                {categories.map((cat) => (
                   <option key={cat} value={cat}>
                     {cat}
                   </option>
@@ -442,7 +468,16 @@ export default function ProductosPage() {
               TODO: acá agregás inputs extras (categoria, etc.)
              ========================= */}
           <div className="data-card neon-hover-cyan">
-            <div className="font-bold text-[var(--neon-cyan)] uppercase tracking-wide mb-3">Nuevo Producto</div>
+            <div className="flex items-center justify-between mb-3">
+              <span className="font-bold text-[var(--neon-cyan)] uppercase tracking-wide">Nuevo Producto</span>
+              <button
+                type="button"
+                onClick={() => setShowNewCatModal(true)}
+                className="cyber-button text-xs"
+              >
+                + Nueva categoría
+              </button>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
               <input
                 className="cyber-input"
@@ -456,7 +491,7 @@ export default function ProductosPage() {
                 onChange={(e) => setCategoria(e.target.value || null)}
               >
                 <option value="">Sin categoría</option>
-                {CATEGORIES.map((cat) => (
+                {categories.map((cat) => (
                   <option key={cat} value={cat}>
                     {cat}
                   </option>
@@ -570,7 +605,7 @@ export default function ProductosPage() {
                             onBlur={() => saveRow(p.id)}
                           >
                             <option value="">Sin categoría</option>
-                            {CATEGORIES.map((cat) => (
+                            {categories.map((cat) => (
                               <option key={cat} value={cat}>
                                 {cat}
                               </option>
@@ -713,6 +748,38 @@ export default function ProductosPage() {
             </table>
           </div>
         </>
+      )}
+
+      {/* Modal: Nueva categoría */}
+      {showNewCatModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
+          <div className="data-card neon-outline-cyan w-full max-w-sm space-y-4">
+            <h2 className="text-xl font-bold neon-text-cyan uppercase tracking-wide">Nueva Categoría</h2>
+            <input
+              className="cyber-input w-full"
+              placeholder="Nombre de la categoría"
+              value={newCatName}
+              onChange={(e) => setNewCatName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleCreateCategory()}
+              autoFocus
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={handleCreateCategory}
+                disabled={savingCat}
+                className="cyber-button-cyan flex-1"
+              >
+                {savingCat ? "Guardando..." : "Crear"}
+              </button>
+              <button
+                onClick={() => { setShowNewCatModal(false); setNewCatName(""); }}
+                className="cyber-button flex-1"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
