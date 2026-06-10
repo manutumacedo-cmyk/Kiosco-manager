@@ -46,6 +46,9 @@ efectivo contado al cierre (B28, pasos 1-4). El arqueo guarda `efectivo_contado_
 y `diferencia_*`, muestra diferencia en vivo, exige nota si hay descuadre, y el historial
 indica Sobró/Faltó/✓ cuadró.
 
+🟡 B20 — parcial: mensaje resuelto (el error de stock muestra el nombre del producto),
+falta la segunda mitad (que un faltante de un solo ítem no aborte el carrito entero).
+
 ⏳ Críticos (🔴) que quedan sin resolver:
 - **B18** — venta duplicada al reintentar tras corte de red (falta idempotencia en `createSale`).
 - **B26** — anular una venta tras el cierre desincroniza el snapshot del turno
