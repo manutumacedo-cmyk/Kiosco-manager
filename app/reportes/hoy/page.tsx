@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import type { Sale, SaleItemWithProduct, Product } from "@/types";
 import { fetchTodayReport, fetchWeeklyReport, fetchMonthlyReport, type SaleWithItems, type ComboSaleData } from "@/lib/services/reports";
 import { useToast } from "@/components/ui/Toast";

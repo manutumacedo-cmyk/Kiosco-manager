@@ -16,7 +16,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import ReposicionTab from "./ReposicionTab";
 import type { Product, ProductDraft, SortMode, TabMode, CategoryType } from "@/types";
 import { CATEGORIES } from "@/types";

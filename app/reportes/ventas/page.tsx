@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import type { Sale } from "@/types";
 import { fetchSalesByDateRange, cancelSale } from "@/lib/services/sales";
@@ -106,11 +107,8 @@ export default function HistorialVentasPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link
-            href="/"
-            className="h-10 w-10 rounded-full neon-border-cyan hover:bg-[var(--cyan-glow)] transition-all flex items-center justify-center flex-shrink-0"
-          >
-            ←
+          <Link href="/">
+            <Image src="/logo.png" alt="24 SIETE" width={40} height={40} className="cursor-pointer" />
           </Link>
           <h1 className="text-3xl font-bold neon-text-cyan">HISTORIAL DE VENTAS</h1>
           <div className="text-2xl">📋</div>
