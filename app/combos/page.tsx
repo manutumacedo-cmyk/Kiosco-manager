@@ -160,6 +160,20 @@ export default function CombosPage() {
     }
   }
 
+  async function handleDelete(combo: ComboWithProducts) {
+    // Borrado definitivo: confirmación explícita para evitar borrar de más en hora pico.
+    if (!confirm(`¿Eliminar el combo "${combo.nombre}" de forma definitiva?\n\nNo se puede deshacer. Las ventas ya registradas no se ven afectadas.`)) {
+      return;
+    }
+    try {
+      await deleteCombo(combo.id);
+      toast.success("Combo eliminado");
+      await loadData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al eliminar combo");
+    }
+  }
+
   async function handleSaveExchangeRate() {
     const rate = Number(rateInput);
 
@@ -334,6 +348,12 @@ export default function CombosPage() {
                     }`}
                   >
                     {combo.activo ? "🚫 Desactivar" : "✅ Activar"}
+                  </button>
+                  <button
+                    onClick={() => handleDelete(combo)}
+                    className="flex-1 text-xs py-2 rounded border font-bold transition-all duration-200 border-[var(--error)] text-[var(--error)] hover:bg-[var(--error)] hover:text-[var(--dark-bg)]"
+                  >
+                    🗑️ Eliminar
                   </button>
                 </div>
               </div>
