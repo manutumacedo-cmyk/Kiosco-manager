@@ -55,3 +55,37 @@ falta la segunda mitad (que un faltante de un solo ítem no aborte el carrito en
   (`cancel_sale` no chequea turno cerrado).
 
 Otros pendientes no-críticos: B19, B21, B22, B27, B30 (🟠/🟡) y B31 (carpeta `web/` duplicada).
+
+## gstack
+Comandos namespaceados con prefijo `gstack-` (instalado con `./setup --prefix`).
+Use /gstack-browse for all web browsing. Never use mcp__claude-in-chrome__* tools.
+Available skills: /gstack-office-hours, /gstack-plan-ceo-review, /gstack-plan-eng-review,
+/gstack-plan-design-review, /gstack-design-consultation, /gstack-design-shotgun,
+/gstack-design-html, /gstack-review, /gstack-ship, /gstack-land-and-deploy, /gstack-canary,
+/gstack-benchmark, /gstack-browse, /gstack-open-gstack-browser, /gstack-qa, /gstack-qa-only,
+/gstack-design-review, /gstack-setup-browser-cookies, /gstack-setup-deploy, /gstack-setup-gbrain,
+/gstack-sync-gbrain, /gstack-retro, /gstack-investigate, /gstack-document-release,
+/gstack-document-generate, /gstack-codex, /gstack-cso, /gstack-autoplan, /gstack-pair-agent,
+/gstack-careful, /gstack-freeze, /gstack-guard, /gstack-unfreeze, /gstack-upgrade, /gstack-learn.
+
+## Skill routing
+Al EMPEZAR cada tarea, evaluá si encaja una skill de gstack y proponéla (o usala) antes
+de arrancar a codear. No reimplementes a mano lo que una skill ya hace. Guía rápida:
+
+- **Planear una feature / decidir alcance** → /gstack-office-hours (interroga supuestos antes
+  de codear). Para revisar un plan ya armado: /gstack-plan-ceo-review (¿vale la pena?),
+  /gstack-plan-eng-review (¿cómo construirlo?), /gstack-plan-design-review (UX/visual).
+- **Debuggear un bug con causa no obvia** (ej. B18 idempotencia, B26 snapshot de turno)
+  → /gstack-investigate (root cause sistemático, auto-freezea el módulo).
+- **Antes de commitear / cerrar una tarea** → /gstack-review (revisión del diff).
+- **Probar la UI en browser de verdad** (POS, caja, reportes) → /gstack-qa (prueba y arregla)
+  o /gstack-qa-only (solo reporta). Navegación web puntual → /gstack-browse.
+- **Trabajo visual / UI** (headers, layout del POS, neon styling) → /gstack-design-review
+  (encuentra inconsistencias y AI slop); explorar variantes → /gstack-design-shotgun.
+- **Comandos destructivos** (DROP TABLE, rm -rf, reset --hard sobre SQL/caja) → /gstack-careful
+  o /gstack-guard. Para acotar edits a un módulo mientras debuggeo → /gstack-freeze.
+- **Cerrar y desplegar** → /gstack-ship (tests + diff + CHANGELOG + PR), luego /gstack-canary.
+- **Seguridad** (auth, JWT, env, manejo de plata) → /gstack-cso.
+
+Regla del proyecto: una tarea a la vez, probar en browser antes de commitear. Las skills
+/gstack-qa y /gstack-review encajan con eso — usalas en vez de saltar el paso de prueba.
