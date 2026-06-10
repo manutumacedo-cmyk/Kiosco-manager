@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import ReposicionTab from "./ReposicionTab";
 import type { Product, ProductDraft, SortMode, TabMode, CategoryType } from "@/types";
 import { CATEGORIES } from "@/types";
@@ -313,7 +314,7 @@ export default function ProductosPage() {
         <div className="space-y-3">
           {/* Título con ícono */}
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-full neon-border-cyan animate-pulse-cyan" />
+            <Image src="/logo.png" alt="24 SIETE" width={40} height={40} />
             <h1 className="text-3xl font-bold neon-text-cyan">PRODUCTOS</h1>
             <div className="text-2xl">📦</div>
           </div>

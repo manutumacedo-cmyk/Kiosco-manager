@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import type { Product, CartItem, CategoryType, ComboWithProducts } from "@/types";
 import { CATEGORIES } from "@/types";
 import { fetchActiveProducts } from "@/lib/services/products";
@@ -488,7 +489,7 @@ export default function NuevaVentaPage() {
       {/* ── HEADER ── */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--slate-gray)] flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="h-7 w-7 rounded-full neon-border-magenta animate-pulse-magenta" />
+          <Image src="/logo.png" alt="24 SIETE" width={40} height={40} />
           <h1 className="text-xl font-bold neon-text-magenta tracking-wide">PUNTO DE VENTA</h1>
         </div>
         <input
