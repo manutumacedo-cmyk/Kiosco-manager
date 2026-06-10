@@ -17,6 +17,16 @@ type Currency = "UYU" | "BRL";
 // Solo para UYU — los reales (BRL) mantienen centavos.
 const roundUYU = (n: number) => Math.round(n);
 
+// Íconos por categoría (solo presentación de tabs)
+const TAB_ICONS: Record<string, string> = {
+  Bebidas: "🥤",
+  Alimento: "🍔",
+  Vasos: "🥃",
+  Otros: "📦",
+  Cigarrillos: "🚬",
+  Combos: "🎁",
+};
+
 export default function NuevaVentaPage() {
   const toast = useToast();
   const [products, setProducts] = useState<Product[]>([]);
@@ -496,38 +506,51 @@ export default function NuevaVentaPage() {
     <div className="h-screen flex flex-col bg-[var(--deep-dark)] overflow-hidden">
 
       {/* ── HEADER ── */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--slate-gray)] flex-shrink-0">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center gap-4 px-4 py-2.5 border-b border-[var(--slate-gray)] bg-[var(--carbon-gray)]/50 flex-shrink-0">
+        <div className="flex items-center gap-3 flex-shrink-0">
           <Link href="/">
-            <Image src="/logo.png" alt="24 SIETE" width={40} height={40} className="cursor-pointer" />
+            <Image src="/logo.png" alt="24 SIETE" width={38} height={38} className="cursor-pointer" />
           </Link>
-          <h1 className="text-xl font-bold neon-text-magenta tracking-wide">PUNTO DE VENTA</h1>
+          <h1 className="text-lg font-bold neon-text-magenta tracking-wide hidden md:block">PUNTO DE VENTA</h1>
         </div>
-        <input
-          ref={searchInputRef}
-          className="cyber-input text-sm w-56"
-          placeholder="Buscar producto..."
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        <div className="text-xs text-[var(--text-muted)] font-mono">
-          1 BRL = ${exchangeRate.toFixed(2)} UYU
+        <div className="relative flex-1 max-w-md mx-auto">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] text-sm pointer-events-none">⌕</span>
+          <input
+            ref={searchInputRef}
+            className="cyber-input text-sm w-full pl-8 pr-10"
+            placeholder="Buscar producto..."
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono px-1.5 py-0.5 rounded border border-[var(--slate-gray)] text-[var(--text-muted)] pointer-events-none">/</kbd>
+        </div>
+        <div className="flex-shrink-0 text-[11px] font-mono px-3 py-1.5 rounded-lg border border-[var(--slate-gray)] bg-[var(--deep-dark)]">
+          <span className="text-[var(--text-muted)]">1 BRL = </span>
+          <span className="text-[var(--neon-cyan)] font-bold">${exchangeRate.toFixed(2)}</span>
+          <span className="text-[var(--text-muted)]"> UYU</span>
         </div>
       </div>
 
       {/* ── TABS DE CATEGORÍA ── */}
-      <div className="flex gap-1 px-4 pt-2 border-b border-[var(--slate-gray)] flex-shrink-0">
-        {([...CATEGORIES, "Combos"] as string[]).map((cat) => (
+      <div className="flex gap-2 px-4 py-2 border-b border-[var(--slate-gray)] flex-shrink-0">
+        {([...CATEGORIES, "Combos"] as string[]).map((cat, i) => (
           <button
             key={cat}
             onClick={() => { setCategoriaFilter(cat); setQ(""); }}
-            className={`px-5 py-2 rounded-t-lg font-bold text-sm uppercase tracking-wide transition-all border-t border-l border-r ${
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-bold text-sm uppercase tracking-wide transition-all border ${
               activeTab === cat
-                ? "border-[var(--neon-cyan)] text-[var(--neon-cyan)] bg-[var(--cyan-glow)]"
-                : "border-[var(--slate-gray)] text-[var(--text-secondary)] hover:text-[var(--neon-cyan)] hover:border-[var(--neon-cyan)]"
+                ? "border-[var(--neon-cyan)] text-[var(--neon-cyan)] bg-[var(--cyan-glow)] shadow-[0_0_12px_var(--cyan-glow)]"
+                : "border-[var(--slate-gray)] bg-[var(--carbon-gray)] text-[var(--text-secondary)] hover:text-[var(--neon-cyan)] hover:border-[var(--neon-cyan)]"
             }`}
           >
-            {cat}
+            <span className="text-base leading-none">{TAB_ICONS[cat] ?? ""}</span>
+            <span>{cat}</span>
+            {/* Solo F1–F5 existen como atajo (ver onKeyDown) */}
+            {i < 5 && (
+              <kbd className={`hidden lg:inline text-[9px] font-mono px-1 py-0.5 rounded border leading-none ${
+                activeTab === cat ? "border-[var(--neon-cyan)]/40 text-[var(--neon-cyan)]/70" : "border-[var(--slate-gray)] text-[var(--text-muted)]"
+              }`}>F{i + 1}</kbd>
+            )}
           </button>
         ))}
       </div>
@@ -539,24 +562,25 @@ export default function NuevaVentaPage() {
         <div className="flex-1 overflow-auto p-4">
           {activeTab === "Combos" ? (
             combos.length === 0 ? (
-              <div className="text-center py-16 text-[var(--text-muted)] font-mono text-sm">
-                No hay combos activos
+              <div className="flex flex-col items-center gap-3 py-20 text-[var(--text-muted)]">
+                <div className="text-4xl opacity-40">🎁</div>
+                <div className="font-mono text-sm">No hay combos activos</div>
               </div>
             ) : (
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 xl:grid-cols-4 gap-3">
                 {combos.map((combo) => (
                   <button
                     key={combo.id}
                     onClick={() => addCombo(combo)}
-                    className="flex flex-col items-start p-4 border border-[var(--slate-gray)] rounded-xl hover:border-[var(--neon-magenta)] hover:bg-[var(--magenta-glow)] active:scale-95 transition-all duration-150 text-left min-h-[110px]"
+                    className="group flex flex-col items-start p-4 bg-[var(--carbon-gray)] border border-[var(--slate-gray)] rounded-2xl hover:border-[var(--neon-magenta)] hover:shadow-[0_0_16px_var(--magenta-glow)] active:scale-[0.97] transition-all duration-150 text-left min-h-[120px]"
                   >
-                    <div className="font-bold text-[var(--text-primary)] text-sm leading-tight mb-1 truncate w-full">
-                      {combo.nombre}
+                    <div className="font-bold text-[var(--text-primary)] text-sm leading-snug mb-1 w-full line-clamp-2">
+                      🎁 {combo.nombre}
                     </div>
                     <div className="text-[10px] text-[var(--text-muted)] leading-tight flex-1">
                       {combo.items.map((it) => `${it.cantidad}× ${it.nombre}`).join(" · ")}
                     </div>
-                    <div className="font-mono font-bold text-[var(--neon-magenta)] text-lg mt-2">
+                    <div className="font-mono font-bold text-[var(--neon-magenta)] text-3xl leading-none mt-2 group-hover:neon-text-magenta transition-all">
                       ${roundUYU(Number(combo.precio))}
                     </div>
                   </button>
@@ -564,25 +588,36 @@ export default function NuevaVentaPage() {
               </div>
             )
           ) : gridProducts.length === 0 ? (
-            <div className="text-center py-16 text-[var(--text-muted)] font-mono text-sm">
-              {q.trim() ? "Sin resultados para esa búsqueda" : "Sin productos en esta categoría"}
+            <div className="flex flex-col items-center gap-3 py-20 text-[var(--text-muted)]">
+              <div className="text-4xl opacity-40">{q.trim() ? "⌕" : "📭"}</div>
+              <div className="font-mono text-sm">
+                {q.trim() ? "Sin resultados para esa búsqueda" : "Sin productos en esta categoría"}
+              </div>
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 xl:grid-cols-4 gap-3">
               {gridProducts.map((p) => (
                 <button
                   key={p.id}
                   onClick={() => add(p)}
-                  className="flex flex-col items-start p-4 border border-[var(--slate-gray)] rounded-xl hover:border-[var(--neon-cyan)] hover:bg-[var(--cyan-glow)] active:scale-95 transition-all duration-150 text-left min-h-[100px]"
+                  className="group relative flex flex-col items-start p-4 bg-[var(--carbon-gray)] border border-[var(--slate-gray)] rounded-2xl hover:border-[var(--neon-cyan)] hover:shadow-[0_0_16px_var(--cyan-glow)] active:scale-[0.97] transition-all duration-150 text-left min-h-[110px]"
                 >
-                  <div className="font-bold text-[var(--text-primary)] text-sm leading-tight truncate w-full">
+                  <div className="font-bold text-[var(--text-primary)] text-sm leading-snug w-full line-clamp-2">
                     {p.nombre}
                   </div>
-                  <div className="font-mono font-bold text-[var(--neon-cyan)] text-2xl mt-auto">
-                    ${roundUYU(Number(p.precio))}
-                  </div>
-                  <div className="text-[10px] text-[var(--text-muted)] font-mono">
-                    Stock: {p.stock}
+                  <div className="flex items-end justify-between w-full mt-auto pt-2">
+                    <div className="font-mono font-bold text-[var(--neon-cyan)] text-3xl leading-none group-hover:neon-text-cyan transition-all">
+                      ${roundUYU(Number(p.precio))}
+                    </div>
+                    <div className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md leading-none ${
+                      p.stock <= 3
+                        ? "text-[var(--error)] bg-[var(--error)]/10"
+                        : p.stock <= 10
+                          ? "text-[var(--warning)] bg-[var(--warning)]/10"
+                          : "text-[var(--text-muted)]"
+                    }`}>
+                      ×{p.stock}
+                    </div>
                   </div>
                 </button>
               ))}
@@ -591,12 +626,17 @@ export default function NuevaVentaPage() {
         </div>
 
         {/* DERECHA – Carrito */}
-        <div className="w-[360px] flex flex-col border-l border-[var(--slate-gray)] flex-shrink-0">
+        <div className="w-[360px] flex flex-col border-l border-[var(--slate-gray)] bg-[var(--carbon-gray)]/30 flex-shrink-0">
 
           {/* Encabezado carrito */}
           <div className="px-4 py-3 border-b border-[var(--slate-gray)] flex items-center justify-between flex-shrink-0">
-            <span className="text-[var(--neon-magenta)] font-bold text-sm uppercase tracking-wide">
-              Carrito ({cart.length})
+            <span className="flex items-center gap-2 text-[var(--neon-magenta)] font-bold text-sm uppercase tracking-wide">
+              🛒 Carrito
+              {cart.length > 0 && (
+                <span className="font-mono text-xs px-2 py-0.5 rounded-full bg-[var(--magenta-glow)] border border-[var(--neon-magenta)]/40 leading-none">
+                  {cart.length}
+                </span>
+              )}
             </span>
             {cart.length > 0 && (
               <button
@@ -611,8 +651,11 @@ export default function NuevaVentaPage() {
           {/* Ítems */}
           <div className="flex-1 overflow-auto p-3 space-y-2">
             {cart.length === 0 ? (
-              <div className="text-center py-16 text-[var(--text-muted)] font-mono text-sm leading-relaxed">
-                Tocá un producto<br />para agregarlo
+              <div className="flex flex-col items-center gap-3 py-16 text-[var(--text-muted)]">
+                <div className="text-4xl opacity-40">🛒</div>
+                <div className="font-mono text-sm text-center leading-relaxed">
+                  Tocá un producto<br />para agregarlo
+                </div>
               </div>
             ) : (
               cart.map((it, idx) => {
@@ -626,42 +669,42 @@ export default function NuevaVentaPage() {
                 return (
                   <div
                     key={`${it.product_id}-${it.isCombo}-${idx}`}
-                    className="border border-[var(--slate-gray)] rounded-xl p-3 bg-[var(--carbon-gray)]"
+                    className="border border-[var(--slate-gray)] rounded-xl p-3 bg-[var(--carbon-gray)] hover:border-[var(--text-muted)] transition-all"
                   >
                     {/* Fila 1: nombre + quitar */}
-                    <div className="flex justify-between items-start gap-2 mb-2">
+                    <div className="flex justify-between items-start gap-2 mb-2.5">
                       <span className="font-semibold text-[var(--text-primary)] text-sm leading-tight truncate">
-                        {it.nombre}{it.isCombo ? " 🎁" : ""}
+                        {it.isCombo ? "🎁 " : ""}{it.nombre}
                       </span>
                       <button
                         onClick={() => remove(it.product_id, it.isCombo)}
-                        className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-[var(--error)] text-[var(--error)] hover:bg-[var(--error)] hover:text-white transition-all leading-none"
+                        className="flex-shrink-0 w-6 h-6 flex items-center justify-center text-[11px] rounded-md text-[var(--text-muted)] hover:bg-[var(--error)]/15 hover:text-[var(--error)] transition-all leading-none"
                       >
                         ✕
                       </button>
                     </div>
 
                     {/* Fila 2: cantidad +/- · precio unitario · subtotal */}
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setQty(it.product_id, it.cantidad - 1, it.isCombo)}
-                        className="w-7 h-7 rounded border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)] font-bold text-base leading-none transition-all"
+                        className="w-9 h-9 rounded-lg border border-[var(--slate-gray)] bg-[var(--deep-dark)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)] font-bold text-lg leading-none transition-all active:scale-90"
                       >
                         −
                       </button>
-                      <span className="w-7 text-center font-mono font-bold text-[var(--text-primary)] text-sm">
+                      <span className="w-8 text-center font-mono font-bold text-[var(--text-primary)] text-base">
                         {it.cantidad}
                       </span>
                       <button
                         onClick={() => setQty(it.product_id, it.cantidad + 1, it.isCombo)}
-                        className="w-7 h-7 rounded border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)] font-bold text-base leading-none transition-all"
+                        className="w-9 h-9 rounded-lg border border-[var(--slate-gray)] bg-[var(--deep-dark)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)] font-bold text-lg leading-none transition-all active:scale-90"
                       >
                         +
                       </button>
                       <span className="text-[var(--text-muted)] text-[11px] font-mono ml-1 flex-1">
                         × ${roundUYU(it.precio_unitario)}
                       </span>
-                      <span className="font-bold font-mono text-[var(--neon-magenta)] text-sm">
+                      <span className="font-bold font-mono text-[var(--neon-magenta)] text-base">
                         ${subtotal}
                       </span>
                     </div>
@@ -698,14 +741,14 @@ export default function NuevaVentaPage() {
           </div>
 
           {/* Total + COBRAR */}
-          <div className="border-t border-[var(--slate-gray)] p-4 space-y-3 flex-shrink-0">
-            <div className="flex justify-between items-baseline">
-              <span className="text-[var(--text-muted)] text-xs uppercase tracking-wide">Total</span>
+          <div className="border-t border-[var(--slate-gray)] bg-[var(--deep-dark)] p-4 space-y-3 flex-shrink-0">
+            <div className="flex justify-between items-end">
+              <span className="text-[var(--text-muted)] text-xs uppercase tracking-widest pb-1.5">Total</span>
               <div className="text-right">
-                <div className="text-3xl font-bold font-mono neon-text-cyan">
-                  ${total} <span className="text-sm font-normal">UYU</span>
+                <div className="text-4xl font-bold font-mono neon-text-cyan leading-none">
+                  ${total} <span className="text-sm font-normal text-[var(--neon-cyan)]/70">UYU</span>
                 </div>
-                <div className="text-xs font-mono text-[var(--text-muted)]">
+                <div className="text-xs font-mono text-[var(--text-muted)] mt-1">
                   ≈ R${(total / exchangeRate).toFixed(2)} BRL
                 </div>
               </div>
@@ -713,10 +756,15 @@ export default function NuevaVentaPage() {
             <button
               onClick={abrirCobro}
               disabled={cart.length === 0}
-              className="w-full py-4 text-lg font-bold uppercase tracking-widest rounded-xl border-2 border-[var(--neon-magenta)] text-[var(--neon-magenta)] bg-[var(--magenta-glow)] hover:bg-[var(--neon-magenta)] hover:text-[var(--deep-dark)] disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150"
+              className="w-full py-4 text-xl font-bold uppercase tracking-widest rounded-xl border-2 border-[var(--neon-magenta)] text-[var(--neon-magenta)] bg-[var(--magenta-glow)] shadow-[0_0_20px_var(--magenta-glow)] hover:bg-[var(--neon-magenta)] hover:text-[var(--deep-dark)] hover:shadow-[0_0_30px_var(--magenta-glow)] disabled:opacity-25 disabled:cursor-not-allowed disabled:shadow-none transition-all duration-150"
             >
               COBRAR →
             </button>
+            {cart.length > 0 && (
+              <div className="text-center text-[10px] font-mono text-[var(--text-muted)]">
+                <kbd className="px-1.5 py-0.5 rounded border border-[var(--slate-gray)]">Enter</kbd> para cobrar
+              </div>
+            )}
           </div>
         </div>
       </div>
