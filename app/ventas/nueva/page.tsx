@@ -46,6 +46,14 @@ export default function NuevaVentaPage() {
   const abrirCobroRef = useRef(abrirCobro);
   const pagoJustoRef = useRef(cobrarPagoJusto);
 
+  // Clave de idempotencia (B18): identifica un intento de cobro. Se rota en cada
+  // cambio de carrito; en un reintento (carrito sin cambios) se reusa la misma clave,
+  // así el server dedupea y no se cobra/descuenta dos veces tras un corte de red.
+  const idemKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    idemKeyRef.current = crypto.randomUUID();
+  }, [cart]);
+
   // Shot Extra (monto fijo configurable)
   const SHOT_EXTRA_AMOUNT = 50; // UYU
   const MONSTER_PRICE = 100.0; // UYU
@@ -390,6 +398,7 @@ export default function NuevaVentaPage() {
         vuelto_moneda: pago.vuelto_moneda,
         tasa_cambio: exchangeRate,
         session_id: openSessionId,
+        client_request_id: idemKeyRef.current ?? crypto.randomUUID(),
         items: saleItems,
         combos: combosVendidos.length > 0 ? combosVendidos : undefined,
       });

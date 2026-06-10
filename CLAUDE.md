@@ -49,8 +49,11 @@ indica Sobró/Faltó/✓ cuadró.
 🟡 B20 — parcial: mensaje resuelto (el error de stock muestra el nombre del producto),
 falta la segunda mitad (que un faltante de un solo ítem no aborte el carrito entero).
 
+✅ B18 — resuelto: idempotencia en `createSale` con `client_request_id` (UUID por intento de
+cobro, rota por carrito). `create_sale_atomic` dedupea + unique index parcial + guard
+`unique_violation`; combos idempotentes (upsert). Verificado en browser (Network=Offline).
+
 ⏳ Críticos (🔴) que quedan sin resolver:
-- **B18** — venta duplicada al reintentar tras corte de red (falta idempotencia en `createSale`).
 - **B26** — anular una venta tras el cierre desincroniza el snapshot del turno
   (`cancel_sale` no chequea turno cerrado).
 

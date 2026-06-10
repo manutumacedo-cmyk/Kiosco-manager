@@ -93,6 +93,7 @@ CREATE TABLE IF NOT EXISTS sales (
   ) STORED,
   estado        TEXT NOT NULL DEFAULT 'activa',  -- 'activa' | 'anulada'
   session_id    UUID REFERENCES cash_sessions(id) ON DELETE SET NULL,
+  client_request_id UUID,                 -- idempotencia de venta (B18): clave por intento de cobro
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -216,6 +217,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_one_open_session    ON cash_sessions (esta
 CREATE INDEX IF NOT EXISTS idx_sales_fecha                ON sales(fecha DESC);
 CREATE INDEX IF NOT EXISTS idx_sales_estado               ON sales(estado);
 CREATE INDEX IF NOT EXISTS idx_sales_session_id           ON sales(session_id);
+-- Idempotencia de venta (B18): bloquea dos ventas con la misma clave; múltiples NULL permitidos.
+CREATE UNIQUE INDEX IF NOT EXISTS sales_client_request_id_uniq ON sales(client_request_id) WHERE client_request_id IS NOT NULL;
+-- Idempotencia de combos (B18): un reintento no duplica filas en sale_combos.
+CREATE UNIQUE INDEX IF NOT EXISTS sale_combos_sale_combo_uniq  ON sale_combos(sale_id, combo_id);
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id         ON sale_items(sale_id);
 CREATE INDEX IF NOT EXISTS idx_sale_items_product_id      ON sale_items(product_id);
 CREATE INDEX IF NOT EXISTS idx_sale_combos_sale_id        ON sale_combos(sale_id);
@@ -239,6 +244,8 @@ DROP FUNCTION IF EXISTS decrement_stock(uuid, integer);
 DROP FUNCTION IF EXISTS increment_stock(uuid, integer);
 DROP FUNCTION IF EXISTS create_sale_atomic(text, numeric, text, jsonb);
 DROP FUNCTION IF EXISTS create_sale_atomic(text, numeric, text, jsonb, text, numeric, numeric, text, uuid);
+DROP FUNCTION IF EXISTS create_sale_atomic(text, numeric, text, jsonb, text, numeric, numeric, text, uuid, numeric);
+DROP FUNCTION IF EXISTS create_sale_atomic(text, numeric, text, jsonb, text, numeric, numeric, text, uuid, numeric, uuid);
 DROP FUNCTION IF EXISTS cancel_sale(uuid);
 DROP FUNCTION IF EXISTS close_cash_session(uuid, text, text);
 
@@ -295,7 +302,8 @@ CREATE OR REPLACE FUNCTION create_sale_atomic(
   p_vuelto        numeric DEFAULT NULL,        -- vuelto entregado, en la moneda de p_vuelto_moneda
   p_vuelto_moneda text    DEFAULT NULL,        -- 'UYU' | 'BRL' | NULL (NULL = UYU por defecto)
   p_session_id    uuid    DEFAULT NULL,        -- sesión de caja activa
-  p_tasa_cambio   numeric DEFAULT NULL         -- tasa BRL→UYU al momento de la venta (snapshot)
+  p_tasa_cambio   numeric DEFAULT NULL,        -- tasa BRL→UYU al momento de la venta (snapshot)
+  p_client_request_id uuid DEFAULT NULL        -- idempotencia (B18): clave por intento de cobro
 )
 RETURNS uuid
 LANGUAGE plpgsql
@@ -308,6 +316,15 @@ DECLARE
   v_product_exists boolean;
   v_nombre text;
 BEGIN
+  -- Idempotencia (B18): si ya existe una venta con esta clave (reintento tras
+  -- respuesta perdida por corte de red), devolverla sin re-insertar ni re-descontar stock.
+  IF p_client_request_id IS NOT NULL THEN
+    SELECT id INTO new_sale_id FROM sales WHERE client_request_id = p_client_request_id;
+    IF FOUND THEN
+      RETURN new_sale_id;
+    END IF;
+  END IF;
+
   -- Validación de efectivo: el cuadre por cajón necesita saber qué entró y qué salió.
   -- Sin `pagado`, mov_efectivo_* daría 0 y el cajón quedaría mal (raíz de B24/B25).
   IF p_metodo_pago = 'efectivo' THEN
@@ -322,8 +339,8 @@ BEGIN
     END IF;
   END IF;
 
-  INSERT INTO sales (metodo_pago, total, nota, moneda, pagado, vuelto, vuelto_moneda, tasa_cambio, session_id)
-  VALUES (p_metodo_pago, p_total, p_nota, COALESCE(p_moneda, 'UYU'), p_pagado, p_vuelto, p_vuelto_moneda, p_tasa_cambio, p_session_id)
+  INSERT INTO sales (metodo_pago, total, nota, moneda, pagado, vuelto, vuelto_moneda, tasa_cambio, session_id, client_request_id)
+  VALUES (p_metodo_pago, p_total, p_nota, COALESCE(p_moneda, 'UYU'), p_pagado, p_vuelto, p_vuelto_moneda, p_tasa_cambio, p_session_id, p_client_request_id)
   RETURNING id INTO new_sale_id;
 
   FOR item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
@@ -354,6 +371,12 @@ BEGIN
     END IF;
   END LOOP;
 
+  RETURN new_sale_id;
+
+EXCEPTION WHEN unique_violation THEN
+  -- Doble-submit concurrente (B18): otra transacción ganó la carrera con la misma
+  -- clave de idempotencia. Devolver la venta que sí quedó, sin duplicar.
+  SELECT id INTO new_sale_id FROM sales WHERE client_request_id = p_client_request_id;
   RETURN new_sale_id;
 END;
 $$;
