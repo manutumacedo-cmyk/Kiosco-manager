@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
 import {
   getOpenSession,
@@ -175,9 +176,12 @@ export default function CajaPage() {
 
   return (
     <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
-      <h1 className="text-2xl font-bold neon-text-cyan uppercase tracking-widest">
-        Caja
-      </h1>
+      <div className="flex items-center gap-3">
+        <Link href="/" className="h-10 w-10 rounded-full neon-border-cyan animate-pulse-cyan hover:bg-[var(--cyan-glow)] transition-all flex-shrink-0" />
+        <h1 className="text-2xl font-bold neon-text-cyan uppercase tracking-widest">
+          Caja
+        </h1>
+      </div>
 
       {error && (
         <div className="p-4 rounded-lg border border-[var(--error)] text-[var(--error)] bg-[rgba(255,59,59,0.08)] text-sm">

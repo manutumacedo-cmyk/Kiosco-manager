@@ -488,7 +488,7 @@ export default function NuevaVentaPage() {
       {/* ── HEADER ── */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--slate-gray)] flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="h-7 w-7 rounded-full neon-border-magenta animate-pulse-magenta" />
+          <Link href="/" className="h-7 w-7 rounded-full neon-border-magenta animate-pulse-magenta hover:bg-[var(--magenta-glow)] transition-all flex-shrink-0" />
           <h1 className="text-xl font-bold neon-text-magenta tracking-wide">PUNTO DE VENTA</h1>
         </div>
         <input

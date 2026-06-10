@@ -1,7 +1,7 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import type { Sale } from "@/types";
 import { fetchSalesByDateRange, cancelSale } from "@/lib/services/sales";
 import { useToast } from "@/components/ui/Toast";
@@ -18,7 +18,6 @@ interface SaleWithItems extends Sale {
 }
 
 export default function HistorialVentasPage() {
-  const router = useRouter();
   const toast = useToast();
 
   const [loading, setLoading] = useState(true);
@@ -107,12 +106,12 @@ export default function HistorialVentasPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => router.back()}
-            className="h-10 w-10 rounded-full neon-border-cyan hover:bg-[var(--cyan-glow)] transition-all flex items-center justify-center"
+          <Link
+            href="/"
+            className="h-10 w-10 rounded-full neon-border-cyan hover:bg-[var(--cyan-glow)] transition-all flex items-center justify-center flex-shrink-0"
           >
             ←
-          </button>
+          </Link>
           <h1 className="text-3xl font-bold neon-text-cyan">HISTORIAL DE VENTAS</h1>
           <div className="text-2xl">📋</div>
         </div>

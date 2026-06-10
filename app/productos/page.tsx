@@ -13,6 +13,7 @@
  * =========================================================
  */
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import ReposicionTab from "./ReposicionTab";
 import type { Product, ProductDraft, SortMode, TabMode, CategoryType } from "@/types";
@@ -313,7 +314,7 @@ export default function ProductosPage() {
         <div className="space-y-3">
           {/* Título con ícono */}
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-full neon-border-cyan animate-pulse-cyan" />
+            <Link href="/" className="h-10 w-10 rounded-full neon-border-cyan animate-pulse-cyan hover:bg-[var(--cyan-glow)] transition-all flex-shrink-0" />
             <h1 className="text-3xl font-bold neon-text-cyan">PRODUCTOS</h1>
             <div className="text-2xl">📦</div>
           </div>
