@@ -489,7 +489,9 @@ export default function NuevaVentaPage() {
       {/* ── HEADER ── */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--slate-gray)] flex-shrink-0">
         <div className="flex items-center gap-3">
-          <Image src="/logo.png" alt="24 SIETE" width={40} height={40} />
+          <Link href="/">
+            <Image src="/logo.png" alt="24 SIETE" width={40} height={40} className="cursor-pointer" />
+          </Link>
           <h1 className="text-xl font-bold neon-text-magenta tracking-wide">PUNTO DE VENTA</h1>
         </div>
         <input

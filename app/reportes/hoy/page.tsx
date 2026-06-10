@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import type { Sale, SaleItemWithProduct, Product } from "@/types";
 import { fetchTodayReport, fetchWeeklyReport, fetchMonthlyReport, type SaleWithItems, type ComboSaleData } from "@/lib/services/reports";
 import { useToast } from "@/components/ui/Toast";
@@ -231,7 +232,9 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Image src="/logo.png" alt="24 SIETE" width={40} height={40} />
+          <Link href="/">
+            <Image src="/logo.png" alt="24 SIETE" width={40} height={40} className="cursor-pointer" />
+          </Link>
           <h1 className="text-3xl font-bold neon-text-cyan">DASHBOARD ESTRATÉGICO</h1>
           <div className="text-2xl">📊</div>
         </div>
