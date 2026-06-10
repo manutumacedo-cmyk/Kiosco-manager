@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 
 interface MenuCard {
   href: string;
@@ -60,12 +61,7 @@ export default function Home() {
         {/* Hero Section */}
         <div className="text-center space-y-4 py-12">
           <div className="flex items-center justify-center gap-4">
-            <div className="h-16 w-16 rounded-full neon-border-cyan animate-pulse-cyan" />
-            <h1 className="text-6xl font-bold">
-              <span className="neon-text-cyan">24</span>
-              <span className="neon-text-magenta"> SIETE</span>
-            </h1>
-            <div className="h-16 w-16 rounded-full neon-border-magenta animate-pulse-magenta" />
+            <Image src="/logo.png" alt="24 SIETE" width={180} height={180} priority />
           </div>
           <p className="text-[var(--text-secondary)] text-lg font-mono">
             24 SIETE: TU SED NO TIENE HORARIO, NOSOTROS TAMPOCO.

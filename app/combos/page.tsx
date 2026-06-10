@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
 import type { ComboWithProducts, Product } from "@/types";
 import {
   fetchAllCombos,
@@ -159,6 +161,20 @@ export default function CombosPage() {
     }
   }
 
+  async function handleDelete(combo: ComboWithProducts) {
+    // Borrado definitivo: confirmación explícita para evitar borrar de más en hora pico.
+    if (!confirm(`¿Eliminar el combo "${combo.nombre}" de forma definitiva?\n\nNo se puede deshacer. Las ventas ya registradas no se ven afectadas.`)) {
+      return;
+    }
+    try {
+      await deleteCombo(combo.id);
+      toast.success("Combo eliminado");
+      await loadData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al eliminar combo");
+    }
+  }
+
   async function handleSaveExchangeRate() {
     const rate = Number(rateInput);
 
@@ -185,7 +201,9 @@ export default function CombosPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link href="/" className="h-10 w-10 rounded-full neon-border-cyan animate-pulse-cyan hover:bg-[var(--cyan-glow)] transition-all flex-shrink-0" />
+          <Link href="/">
+            <Image src="/logo.png" alt="24 SIETE" width={40} height={40} className="cursor-pointer" />
+          </Link>
           <h1 className="text-3xl font-bold neon-text-cyan">ADMINISTRACIÓN DE COMBOS</h1>
           <div className="text-2xl">🎁</div>
         </div>
@@ -331,6 +349,12 @@ export default function CombosPage() {
                     }`}
                   >
                     {combo.activo ? "🚫 Desactivar" : "✅ Activar"}
+                  </button>
+                  <button
+                    onClick={() => handleDelete(combo)}
+                    className="flex-1 text-xs py-2 rounded border font-bold transition-all duration-200 border-[var(--error)] text-[var(--error)] hover:bg-[var(--error)] hover:text-[var(--dark-bg)]"
+                  >
+                    🗑️ Eliminar
                   </button>
                 </div>
               </div>

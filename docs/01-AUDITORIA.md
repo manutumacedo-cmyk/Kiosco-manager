@@ -164,7 +164,7 @@
 
 ### Flujo de venta
 
-#### B18 · Venta duplicada al reintentar tras corte de red 🔴
+#### B18 · Venta duplicada al reintentar tras corte de red 🔴 — ✅ RESUELTO
 - **Dónde:** [`createSale`](../lib/services/sales.ts#L34) (sin clave de idempotencia) · el POS conserva
   el carrito al fallar en [`app/ventas/nueva/page.tsx`](../app/ventas/nueva/page.tsx#L413).
 - **Qué pasa:** Si `create_sale_atomic` **commitea en el servidor pero la respuesta se pierde** (WiFi
@@ -172,6 +172,12 @@
   la RPC de nuevo.
 - **Impacto:** Venta doble, doble descuento de stock y doble efectivo esperado en el cuadre. Es justo
   el escenario de "cortes" que el dueño pidió prevenir (00-CONTEXTO).
+- **Fix:** clave de idempotencia `client_request_id` (UUID por intento de cobro). El POS la genera y
+  rota en cada cambio de carrito; en un reintento (carrito sin cambios) reusa la misma clave.
+  `create_sale_atomic` dedupea: si ya existe una venta con esa clave la devuelve sin re-insertar ni
+  re-descontar stock, con `unique index` parcial en `sales(client_request_id)` + guard `unique_violation`
+  para el doble-submit concurrente. Combos también idempotentes (`upsert` + unique `sale_combos(sale_id,
+  combo_id)`). Verificado en browser con Network=Offline tras el COMMIT.
 
 #### B19 · El insert de combos no es atómico con la venta 🟠
 - **Dónde:** [`lib/services/sales.ts`](../lib/services/sales.ts#L62) — `sale_combos` se inserta en una

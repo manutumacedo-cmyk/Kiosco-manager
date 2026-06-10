@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { useState, useEffect } from "react";
 import { getOpenSession } from "@/lib/services/cashSessions";
 
@@ -52,7 +53,7 @@ export default function CyberNav() {
             <span className="neon-text-cyan">24</span>
             <span className="neon-text-magenta"> SIETE</span>
           </div>
-          <div className="h-8 w-8 rounded-full neon-border-cyan animate-pulse-cyan" />
+          <Image src="/logo.png" alt="24 SIETE" width={32} height={32} />
         </Link>
 
         {/* Navigation Links */}

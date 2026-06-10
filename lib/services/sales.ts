@@ -18,6 +18,8 @@ export async function createSale(params: {
   vuelto_moneda?: 'UYU' | 'BRL' | null;
   tasa_cambio?: number | null;
   session_id?: string | null;
+  /** Clave de idempotencia (B18): mismo valor en un reintento → el server dedupea. */
+  client_request_id?: string | null;
   items: Array<{
     product_id: string;
     cantidad: number;
@@ -43,6 +45,7 @@ export async function createSale(params: {
     p_vuelto_moneda: params.vuelto_moneda ?? null,
     p_session_id: params.session_id ?? null,
     p_tasa_cambio: params.tasa_cambio ?? null,
+    p_client_request_id: params.client_request_id ?? null,
     p_items: params.items.map((it) => ({
       product_id: it.product_id,
       cantidad: it.cantidad,
@@ -60,9 +63,11 @@ export async function createSale(params: {
 
   const saleId = data as string;
 
-  // Guardar combos vendidos en sale_combos (para reportes)
+  // Guardar combos vendidos en sale_combos (para reportes).
+  // upsert idempotente (B18): si esto es un reintento que devolvió una venta ya
+  // existente, no duplica filas (unique sale_combos(sale_id, combo_id)).
   if (params.combos && params.combos.length > 0) {
-    await supabase.from("sale_combos").insert(
+    await supabase.from("sale_combos").upsert(
       params.combos.map((c) => ({
         sale_id: saleId,
         combo_id: c.combo_id,
@@ -70,7 +75,8 @@ export async function createSale(params: {
         cantidad: c.cantidad,
         precio_unitario: c.precio_unitario,
         costo_unitario: c.costo_unitario,
-      }))
+      })),
+      { onConflict: "sale_id,combo_id", ignoreDuplicates: true }
     );
   }
 
@@ -88,6 +94,7 @@ async function createSaleFallback(params: {
   vuelto_moneda?: 'UYU' | 'BRL' | null;
   tasa_cambio?: number | null;
   session_id?: string | null;
+  client_request_id?: string | null;
   items: Array<{
     product_id: string;
     cantidad: number;
@@ -114,6 +121,7 @@ async function createSaleFallback(params: {
       vuelto_moneda: params.vuelto_moneda ?? null,
       tasa_cambio: params.tasa_cambio ?? null,
       session_id: params.session_id ?? null,
+      client_request_id: params.client_request_id ?? null,
     })
     .select("id")
     .single();
@@ -142,9 +150,9 @@ async function createSaleFallback(params: {
     if (e3) throw new Error(e3.message);
   }
 
-  // Guardar combos vendidos en sale_combos (para reportes)
+  // Guardar combos vendidos en sale_combos (para reportes) — upsert idempotente (B18)
   if (params.combos && params.combos.length > 0) {
-    await supabase.from("sale_combos").insert(
+    await supabase.from("sale_combos").upsert(
       params.combos.map((c) => ({
         sale_id,
         combo_id: c.combo_id,
@@ -152,7 +160,8 @@ async function createSaleFallback(params: {
         cantidad: c.cantidad,
         precio_unitario: c.precio_unitario,
         costo_unitario: c.costo_unitario,
-      }))
+      })),
+      { onConflict: "sale_id,combo_id", ignoreDuplicates: true }
     );
   }
 

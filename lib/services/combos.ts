@@ -115,12 +115,15 @@ export async function updateCombo(params: {
 }
 
 /**
- * Elimina un combo (soft delete - marca como inactivo)
+ * Borra un combo de forma definitiva. combo_items cae en cascada (FK ON DELETE
+ * CASCADE). Las ventas históricas en sale_combos NO se tocan: guardan el nombre
+ * denormalizado y combo_id sin FK estricta, así los reportes siguen intactos.
+ * Para ocultar un combo sin borrarlo, usar el toggle activo (Desactivar).
  */
 export async function deleteCombo(id: string): Promise<void> {
   const { error } = await supabase
     .from("combos")
-    .update({ activo: false })
+    .delete()
     .eq("id", id);
 
   if (error) throw new Error(error.message);
