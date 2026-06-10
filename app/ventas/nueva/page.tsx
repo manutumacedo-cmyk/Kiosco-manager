@@ -47,7 +47,7 @@ export default function NuevaVentaPage() {
 
   // Shot Extra (monto fijo configurable)
   const SHOT_EXTRA_AMOUNT = 50; // UYU
-  const MONSTER_PRICE = 100.0; // UYU
+  const MONSTER_PRICE = 50.0; // UYU
 
   async function loadData() {
     try {
