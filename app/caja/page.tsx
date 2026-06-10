@@ -51,6 +51,9 @@ export default function CajaPage() {
   const [contadoBrl, setContadoBrl] = useState("");
   const [closing, setClosing] = useState(false);
   const [closedSessions, setClosedSessions] = useState<CashSession[]>([]);
+  // Arqueo ciego (hybrid): el esperado y la diferencia recién se muestran
+  // después de que el cajero confirma lo contado. Ver decisión B28/arqueo.
+  const [arqueoConfirmado, setArqueoConfirmado] = useState(false);
 
   const loadSession = useCallback(async () => {
     try {
@@ -127,6 +130,7 @@ export default function CajaPage() {
       setNotas("");
       setContadoUyu("");
       setContadoBrl("");
+      setArqueoConfirmado(false);
       setPageState("cerrada");
       const history = await getClosedSessions(10);
       setClosedSessions(history);
@@ -153,7 +157,7 @@ export default function CajaPage() {
   const hayMovimientoBrl = (session?.monto_inicial_brl ?? 0) > 0 || (totals?.total_efectivo_brl ?? 0) !== 0;
 
   const contadoUyuNum = contadoUyu.trim() === "" ? null : Math.round(Number(contadoUyu)); // pesos enteros
-  const contadoBrlNum = contadoBrl.trim() === "" ? null : Number(contadoBrl);             // reales con centavos
+  const contadoBrlNum = contadoBrl.trim() === "" ? null : Number(contadoBrl.replace(",", ".")); // reales con centavos (acepta coma o punto)
   const difUyu = contadoUyuNum === null ? null : contadoUyuNum - esperadoUyu;
   const difBrl = contadoBrlNum === null ? null : contadoBrlNum - esperadoBrl;
 
@@ -327,6 +331,7 @@ export default function CajaPage() {
               setCerradoPor(session.cajero);
               setContadoUyu("");
               setContadoBrl("");
+              setArqueoConfirmado(false);
               setPageState("cerrando");
             }}
             className="w-full py-3 rounded-lg font-bold uppercase tracking-wide transition-all border border-[var(--error)] text-[var(--error)] hover:bg-[rgba(255,59,59,0.08)]"
@@ -387,23 +392,29 @@ export default function CajaPage() {
                 <span>Digital / transferencia</span>
                 <span>$ {fmt(totals.total_digital)}</span>
               </div>
-              <div className="flex justify-between border-t border-[var(--slate-gray)] pt-2 font-semibold">
-                <span className="text-[var(--text-secondary)]">Efectivo total en caja $</span>
-                <span>$ {fmt(session.monto_inicial + totals.total_efectivo_uyu)}</span>
-              </div>
-              <div className="flex justify-between font-semibold">
-                <span className="text-[var(--text-secondary)]">Efectivo total en caja R$</span>
-                <span>R$ {fmtBRL(session.monto_inicial_brl + totals.total_efectivo_brl)}</span>
-              </div>
+              {/* El esperado en caja recién se revela tras confirmar el conteo (arqueo ciego). */}
+              {arqueoConfirmado && (
+                <>
+                  <div className="flex justify-between border-t border-[var(--slate-gray)] pt-2 font-semibold">
+                    <span className="text-[var(--text-secondary)]">Efectivo total en caja $</span>
+                    <span>$ {fmt(session.monto_inicial + totals.total_efectivo_uyu)}</span>
+                  </div>
+                  <div className="flex justify-between font-semibold">
+                    <span className="text-[var(--text-secondary)]">Efectivo total en caja R$</span>
+                    <span>R$ {fmtBRL(session.monto_inicial_brl + totals.total_efectivo_brl)}</span>
+                  </div>
+                </>
+              )}
             </div>
 
             {hayDescuadre && (
               <div className="p-3 rounded-lg border border-[var(--warning)] bg-[rgba(255,170,0,0.08)] text-sm">
-                <p className="text-[var(--warning)] font-semibold">⚠️ Revisar: los totales no cuadran</p>
+                <p className="text-[var(--warning)] font-semibold">⚠️ Aviso del sistema (no es tu conteo)</p>
                 <p className="text-[var(--text-secondary)] text-xs mt-1">
-                  Efectivo + digital no coincide con el total de ventas
-                  (diferencia $ {fmt(Math.abs(descuadreInvariante))}). Conviene revisar
-                  las ventas del turno antes de cerrar.
+                  Las ventas registradas no cierran entre sí: efectivo + digital no coincide
+                  con el total de ventas (diferencia $ {fmt(Math.abs(descuadreInvariante))}).
+                  Es un tema de las ventas del turno, no del efectivo que vas a contar.
+                  Podés cerrar igual; avisá al dueño.
                 </p>
               </div>
             )}
@@ -422,47 +433,91 @@ export default function CajaPage() {
                 value={contadoUyu}
                 onChange={(e) => setContadoUyu(e.target.value)}
                 placeholder="0"
-                className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors"
+                autoFocus
+                readOnly={arqueoConfirmado}
+                className={`w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors ${arqueoConfirmado ? "opacity-60 cursor-default" : ""}`}
               />
-              <div className="flex justify-between text-xs">
-                <span className="text-[var(--text-secondary)]">Esperado: $ {fmt(esperadoUyu)}</span>
-                {difUyu !== null && (
-                  <span className={difUyu === 0 ? "text-[var(--success)]" : difUyu > 0 ? "text-[var(--warning)]" : "text-[var(--error)]"}>
-                    {difUyu === 0 ? "✅ Cuadra" : difUyu > 0 ? `🟡 Sobra $ ${fmt(difUyu)}` : `🔴 Falta $ ${fmt(Math.abs(difUyu))}`}
-                  </span>
-                )}
-              </div>
+              {arqueoConfirmado && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-[var(--text-secondary)]">Esperado: $ {fmt(esperadoUyu)}</span>
+                  {difUyu !== null && (
+                    <span className={difUyu === 0 ? "text-[var(--success)]" : difUyu > 0 ? "text-[var(--warning)]" : "text-[var(--error)]"}>
+                      {difUyu === 0 ? "✅ Cuadra" : difUyu > 0 ? `🟡 Sobra $ ${fmt(difUyu)}` : `🔴 Falta $ ${fmt(Math.abs(difUyu))}`}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
             {hayMovimientoBrl && (
               <div className="space-y-1.5">
                 <label className="block text-sm text-[var(--text-secondary)]">Efectivo contado R$ (reales)</label>
                 <input
-                  type="number" min="0" step="0.01" inputMode="decimal"
+                  type="text" inputMode="decimal"
                   value={contadoBrl}
                   onChange={(e) => setContadoBrl(e.target.value)}
                   placeholder="0,00"
-                  className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors"
+                  readOnly={arqueoConfirmado}
+                  className={`w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors ${arqueoConfirmado ? "opacity-60 cursor-default" : ""}`}
                 />
-                <div className="flex justify-between text-xs">
-                  <span className="text-[var(--text-secondary)]">Esperado: R$ {fmtBRL(esperadoBrl)}</span>
-                  {difBrl !== null && (
-                    <span className={Math.abs(difBrl) < 0.005 ? "text-[var(--success)]" : difBrl > 0 ? "text-[var(--warning)]" : "text-[var(--error)]"}>
-                      {Math.abs(difBrl) < 0.005 ? "✅ Cuadra" : difBrl > 0 ? `🟡 Sobra R$ ${fmtBRL(difBrl)}` : `🔴 Falta R$ ${fmtBRL(Math.abs(difBrl))}`}
-                    </span>
-                  )}
-                </div>
+                {arqueoConfirmado && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[var(--text-secondary)]">Esperado: R$ {fmtBRL(esperadoBrl)}</span>
+                    {difBrl !== null && (
+                      <span className={Math.abs(difBrl) < 0.005 ? "text-[var(--success)]" : difBrl > 0 ? "text-[var(--warning)]" : "text-[var(--error)]"}>
+                        {Math.abs(difBrl) < 0.005 ? "✅ Cuadra" : difBrl > 0 ? `🟡 Sobra R$ ${fmtBRL(difBrl)}` : `🔴 Falta R$ ${fmtBRL(Math.abs(difBrl))}`}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
-            {arqueoDescuadra && (
-              <p className="text-xs text-[var(--warning)]">
-                Hay diferencia con lo esperado. Dejá una nota explicando el descuadre para poder cerrar.
-              </p>
+            {!arqueoConfirmado ? (
+              <div className="space-y-2">
+                <p className="text-xs text-[var(--text-muted)]">
+                  Contá el efectivo físico y confirmá. El esperado y la diferencia se muestran después.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setPageState("abierta")}
+                    className="flex-1 py-3 rounded-lg font-bold uppercase tracking-wide border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)] transition-all"
+                  >
+                    Volver
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setArqueoConfirmado(true)}
+                    disabled={faltaContado}
+                    className="flex-1 py-3 rounded-lg font-bold uppercase tracking-wide transition-all neon-outline-cyan neon-text-cyan hover:bg-[var(--neon-cyan)]/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Confirmar conteo
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-3">
+                {arqueoDescuadra ? (
+                  <p className="text-xs text-[var(--warning)]">
+                    Hay diferencia con lo esperado. Dejá una nota explicando el descuadre para poder cerrar.
+                  </p>
+                ) : (
+                  <p className="text-xs text-[var(--success)]">✅ El conteo coincide con lo esperado.</p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setArqueoConfirmado(false)}
+                  className="shrink-0 text-xs uppercase tracking-wide text-[var(--text-secondary)] hover:text-[var(--neon-cyan)] transition-colors"
+                >
+                  Corregir conteo
+                </button>
+              </div>
             )}
           </div>
 
-          {/* Formulario de cierre */}
+          {/* Formulario de cierre — aparece recién después de confirmar el conteo */}
+          {arqueoConfirmado && (
           <div className="data-card bg-[var(--carbon-gray)] border border-[var(--slate-gray)] rounded-xl p-6">
             <form onSubmit={handleClose} className="space-y-4">
               <div className="space-y-2">
@@ -475,7 +530,6 @@ export default function CajaPage() {
                   onChange={(e) => setCerradoPor(e.target.value)}
                   placeholder="Nombre de quien cierra"
                   required
-                  autoFocus
                   className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors"
                 />
               </div>
@@ -516,6 +570,7 @@ export default function CajaPage() {
               </div>
             </form>
           </div>
+          )}
         </div>
       )}
 
