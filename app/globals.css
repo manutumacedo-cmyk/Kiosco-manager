@@ -234,8 +234,13 @@ body {
   color: var(--text-muted);
 }
 
-/* Botones cyberpunk */
-.cyber-button {
+/* Botones cyberpunk.
+   Las variantes -cyan y -magenta se usan SOLAS en el JSX (sin .cyber-button),
+   así que comparten la base acá: si no, quedan como texto suelto sin chrome
+   de botón (era el caso de "Crear Producto" y "Editar" en /productos). */
+.cyber-button,
+.cyber-button-cyan,
+.cyber-button-magenta {
   background: var(--carbon-gray);
   border: 2px solid var(--neon-cyan);
   color: var(--neon-cyan);
@@ -248,14 +253,17 @@ body {
   cursor: pointer;
 }
 
-.cyber-button:hover:not(:disabled) {
+.cyber-button:hover:not(:disabled),
+.cyber-button-cyan:hover:not(:disabled) {
   background: var(--neon-cyan);
   color: var(--dark-bg);
   box-shadow: 0 0 20px rgba(0, 243, 255, 0.5);
   transform: translateY(-2px);
 }
 
-.cyber-button:disabled {
+.cyber-button:disabled,
+.cyber-button-cyan:disabled,
+.cyber-button-magenta:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -269,6 +277,7 @@ body {
   background: var(--neon-magenta);
   color: var(--dark-bg);
   box-shadow: 0 0 20px rgba(255, 0, 255, 0.5);
+  transform: translateY(-2px);
 }
 
 /* Scrollbar personalizado */
