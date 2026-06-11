@@ -48,12 +48,14 @@ export default function ProductosPage() {
   /** =========================
    * 3) ESTADO: FORM NUEVO PRODUCTO
    * ========================= */
+  // Inputs numéricos arrancan vacíos: con "0" como valor el placeholder nunca
+  // se ve y el cajero no sabe qué campo es cuál (F-002). Number("")||0 → 0.
   const [nombre, setNombre] = useState("");
   const [categoria, setCategoria] = useState<string | null>(null);
-  const [precio, setPrecio] = useState("0");
-  const [costo, setCosto] = useState("0");
-  const [stock, setStock] = useState("0");
-  const [stockMin, setStockMin] = useState("0");
+  const [precio, setPrecio] = useState("");
+  const [costo, setCosto] = useState("");
+  const [stock, setStock] = useState("");
+  const [stockMin, setStockMin] = useState("");
 
   /** =========================
    * 4) ESTADO: EDICIÓN POR FILA
@@ -146,10 +148,10 @@ export default function ProductosPage() {
       // reset inputs
       setNombre("");
       setCategoria(null);
-      setPrecio("0");
-      setCosto("0");
-      setStock("0");
-      setStockMin("0");
+      setPrecio("");
+      setCosto("");
+      setStock("");
+      setStockMin("");
 
       // reload
       loadProducts();
@@ -478,55 +480,75 @@ export default function ProductosPage() {
                 + Nueva categoría
               </button>
             </div>
+            {/* Labels visibles (no solo placeholder): el cajero tiene que saber
+                qué campo es cuál incluso con datos cargados (F-002). */}
             <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
-              <input
-                className="cyber-input"
-                placeholder="Nombre"
-                value={nombre}
-                onChange={(e) => setNombre(e.target.value)}
-              />
-              <select
-                className="cyber-input"
-                value={categoria ?? ""}
-                onChange={(e) => setCategoria(e.target.value || null)}
-              >
-                <option value="">Sin categoría</option>
-                {categories.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="cyber-input"
-                placeholder="Precio venta"
-                type="number"
-                step="0.01"
-                value={precio}
-                onChange={(e) => setPrecio(e.target.value)}
-              />
-              <input
-                className="cyber-input"
-                placeholder="Costo"
-                type="number"
-                step="0.01"
-                value={costo}
-                onChange={(e) => setCosto(e.target.value)}
-              />
-              <input
-                className="cyber-input"
-                placeholder="Stock"
-                type="number"
-                value={stock}
-                onChange={(e) => setStock(e.target.value)}
-              />
-              <input
-                className="cyber-input"
-                placeholder="Stock mínimo"
-                type="number"
-                value={stockMin}
-                onChange={(e) => setStockMin(e.target.value)}
-              />
+              <label className="block">
+                <span className="block text-xs text-[var(--text-secondary)] uppercase tracking-wide mb-1">Nombre</span>
+                <input
+                  className="cyber-input w-full"
+                  placeholder="Ej: Coca 600ml"
+                  value={nombre}
+                  onChange={(e) => setNombre(e.target.value)}
+                />
+              </label>
+              <label className="block">
+                <span className="block text-xs text-[var(--text-secondary)] uppercase tracking-wide mb-1">Categoría</span>
+                <select
+                  className="cyber-input w-full"
+                  value={categoria ?? ""}
+                  onChange={(e) => setCategoria(e.target.value || null)}
+                >
+                  <option value="">Sin categoría</option>
+                  {categories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="block text-xs text-[var(--text-secondary)] uppercase tracking-wide mb-1">Precio venta $</span>
+                <input
+                  className="cyber-input w-full"
+                  placeholder="0"
+                  type="number"
+                  step="0.01"
+                  value={precio}
+                  onChange={(e) => setPrecio(e.target.value)}
+                />
+              </label>
+              <label className="block">
+                <span className="block text-xs text-[var(--text-secondary)] uppercase tracking-wide mb-1">Costo $</span>
+                <input
+                  className="cyber-input w-full"
+                  placeholder="0"
+                  type="number"
+                  step="0.01"
+                  value={costo}
+                  onChange={(e) => setCosto(e.target.value)}
+                />
+              </label>
+              <label className="block">
+                <span className="block text-xs text-[var(--text-secondary)] uppercase tracking-wide mb-1">Stock</span>
+                <input
+                  className="cyber-input w-full"
+                  placeholder="0"
+                  type="number"
+                  value={stock}
+                  onChange={(e) => setStock(e.target.value)}
+                />
+              </label>
+              <label className="block">
+                <span className="block text-xs text-[var(--text-secondary)] uppercase tracking-wide mb-1">Stock mínimo</span>
+                <input
+                  className="cyber-input w-full"
+                  placeholder="0"
+                  type="number"
+                  value={stockMin}
+                  onChange={(e) => setStockMin(e.target.value)}
+                />
+              </label>
             </div>
 
             <button onClick={crearProducto} className="cyber-button-magenta mt-3">
