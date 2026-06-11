@@ -234,6 +234,63 @@ body {
   color: var(--text-muted);
 }
 
+/* ---- Marca 24 SIETE: cartel de neón en CSS (sin imágenes) ----
+   Escala con el font-size del wrapper (todo en em). */
+.brand-mark {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15em;
+  padding: 1em 1.7em 1.1em;
+  border: 2px solid var(--neon-cyan);
+  border-radius: 1.1em;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(0, 243, 255, 0.08), transparent 65%),
+    var(--dark-bg);
+  box-shadow:
+    0 0 12px rgba(0, 243, 255, 0.35),
+    0 0 36px rgba(0, 243, 255, 0.12),
+    inset 0 0 18px rgba(0, 243, 255, 0.08);
+  animation: brand-flicker 7s linear infinite;
+}
+
+.brand-mark-24 {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 3.6em;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: var(--neon-cyan);
+  text-shadow:
+    0 0 4px rgba(0, 243, 255, 0.9),
+    0 0 14px rgba(0, 243, 255, 0.6),
+    0 0 30px rgba(0, 243, 255, 0.35);
+}
+
+.brand-mark-siete {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 1.1em;
+  font-weight: 700;
+  letter-spacing: 0.6em;
+  margin-right: -0.6em; /* compensa el tracking sobrante del último carácter */
+  color: var(--neon-magenta);
+  text-shadow:
+    0 0 4px rgba(255, 0, 255, 0.9),
+    0 0 12px rgba(255, 0, 255, 0.55),
+    0 0 26px rgba(255, 0, 255, 0.3);
+}
+
+/* Parpadeo de tubo de neón: dos micro-caídas por ciclo, casi subliminal */
+@keyframes brand-flicker {
+  0%, 84%, 88%, 100% { opacity: 1; }
+  86% { opacity: 0.8; }
+  87% { opacity: 0.96; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-mark { animation: none; }
+}
+
 /* Botones cyberpunk.
    Las variantes -cyan y -magenta se usan SOLAS en el JSX (sin .cyber-button),
    así que comparten la base acá: si no, quedan como texto suelto sin chrome

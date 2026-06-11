@@ -1,5 +1,5 @@
 import Link from "next/link";
-import Image from "next/image";
+import BrandMark from "@/components/BrandMark";
 
 interface MenuCard {
   href: string;
@@ -59,12 +59,12 @@ export default function Home() {
     <div className="min-h-screen bg-[var(--deep-dark)] p-6">
       <div className="max-w-6xl mx-auto space-y-8">
         {/* Hero Section */}
-        <div className="text-center space-y-4 py-12">
-          <div className="flex items-center justify-center gap-4">
-            <Image src="/logo.png" alt="24 SIETE" width={180} height={180} priority />
+        <div className="text-center space-y-6 py-12">
+          <div className="flex items-center justify-center">
+            <BrandMark className="text-[22px] md:text-[26px]" />
           </div>
           <p className="text-[var(--text-secondary)] text-lg font-mono">
-            24 SIETE: TU SED NO TIENE HORARIO, NOSOTROS TAMPOCO.
+            TU SED NO TIENE HORARIO, NOSOTROS TAMPOCO.
           </p>
         </div>
 
