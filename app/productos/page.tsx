@@ -580,7 +580,7 @@ export default function ProductosPage() {
                       key={p.id}
                       className={`border-t border-[var(--slate-gray)] ${
                         enAlerta
-                          ? "neon-outline-magenta animate-pulse-magenta bg-[var(--magenta-glow)]"
+                          ? "bg-[rgba(255,0,255,0.05)] shadow-[inset_3px_0_0_var(--neon-magenta)] hover:bg-[rgba(255,0,255,0.09)]"
                           : "hover:bg-[var(--carbon-gray)]"
                       }`}
                     >
