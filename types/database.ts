@@ -61,8 +61,19 @@ export interface CashSession {
   cantidad_ventas: number | null;
   efectivo_contado_uyu: number | null;  // arqueo: pesos contados al cierre (B28)
   efectivo_contado_brl: number | null;  // arqueo: reales contados al cierre
+  total_salidas_uyu: number | null;     // snapshot al cierre: salidas del local en pesos
+  total_salidas_brl: number | null;     // snapshot al cierre: salidas del local en reales
   diferencia_uyu: number | null;        // contado − esperado (pesos); >0 sobra, <0 falta
   diferencia_brl: number | null;        // contado − esperado (reales)
+  created_at: string;
+}
+
+export interface CashOutflow {
+  id: string;
+  session_id: string;
+  monto: number;
+  moneda: 'UYU' | 'BRL';
+  motivo: string;
   created_at: string;
 }
 

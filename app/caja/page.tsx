@@ -9,9 +9,11 @@ import {
   openCashSession,
   closeCashSession,
   getClosedSessions,
+  registerCashOutflow,
+  fetchSessionOutflows,
   type SessionTotals,
 } from "@/lib/services/cashSessions";
-import type { CashSession } from "@/types";
+import type { CashSession, CashOutflow } from "@/types";
 
 type PageState = "loading" | "cerrada" | "abierta" | "cerrando";
 
@@ -57,15 +59,25 @@ export default function CajaPage() {
   // después de que el cajero confirma lo contado. Ver decisión B28/arqueo.
   const [arqueoConfirmado, setArqueoConfirmado] = useState(false);
 
+  // Salidas del local (plata que sale de caja durante el turno)
+  const [outflows, setOutflows] = useState<CashOutflow[]>([]);
+  const [showSalidaModal, setShowSalidaModal] = useState(false);
+  const [salidaMonto, setSalidaMonto] = useState("");
+  const [salidaMoneda, setSalidaMoneda] = useState<"UYU" | "BRL">("UYU");
+  const [salidaMotivo, setSalidaMotivo] = useState("");
+  const [savingSalida, setSavingSalida] = useState(false);
+
   const loadSession = useCallback(async () => {
     try {
       const s = await getOpenSession();
       setSession(s);
       if (s) {
-        const t = await getSessionTotals(s.id);
+        const [t, o] = await Promise.all([getSessionTotals(s.id), fetchSessionOutflows(s.id)]);
         setTotals(t);
+        setOutflows(o);
         setPageState("abierta");
       } else {
+        setOutflows([]);
         setPageState("cerrada");
       }
       const history = await getClosedSessions(10);
@@ -107,7 +119,10 @@ export default function CajaPage() {
         total_digital: 0,
         cantidad_ventas: 0,
         total_brl_en_uyu: 0,
+        total_salidas_uyu: 0,
+        total_salidas_brl: 0,
       });
+      setOutflows([]);
       setPageState("abierta");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al abrir caja");
@@ -143,6 +158,31 @@ export default function CajaPage() {
     }
   }
 
+  async function handleRegistrarSalida(e: React.FormEvent) {
+    e.preventDefault();
+    if (!session) return;
+    const monto = Number(salidaMonto.replace(",", "."));
+    setSavingSalida(true);
+    setError(null);
+    try {
+      await registerCashOutflow(session.id, monto, salidaMoneda, salidaMotivo);
+      const [t, o] = await Promise.all([getSessionTotals(session.id), fetchSessionOutflows(session.id)]);
+      setTotals(t);
+      setOutflows(o);
+      setSalidaMonto("");
+      setSalidaMotivo("");
+      setSalidaMoneda("UYU");
+      setShowSalidaModal(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al registrar la salida");
+    } finally {
+      setSavingSalida(false);
+    }
+  }
+
+  const salidaMontoNum = Number(salidaMonto.replace(",", "."));
+  const salidaInvalida = savingSalida || !salidaMotivo.trim() || !(salidaMontoNum > 0);
+
   // Invariante de consistencia: total_ventas ≈ efectivo_uyu + (cajón BRL valuado en UYU) + digital.
   // Aviso NO alarmista en el cierre si no cuadra (posible bug de datos). Ver B23-B25.
   // Tolerancia holgada: el vuelto en reales se redondea a centavos → arrastra ~centavos por venta.
@@ -153,10 +193,16 @@ export default function CajaPage() {
     !!totals && Math.abs(descuadreInvariante) > 1 + totals.cantidad_ventas * 0.05;
 
   // Arqueo (B28): comparar lo contado contra lo esperado por cajón.
-  const esperadoUyu = (session?.monto_inicial ?? 0) + (totals?.total_efectivo_uyu ?? 0);
-  const esperadoBrl = (session?.monto_inicial_brl ?? 0) + (totals?.total_efectivo_brl ?? 0);
-  // Solo se exige contar reales si hubo fondo o movimiento en BRL.
-  const hayMovimientoBrl = (session?.monto_inicial_brl ?? 0) > 0 || (totals?.total_efectivo_brl ?? 0) !== 0;
+  // Las salidas del local restan del esperado: esa plata salió de la caja con motivo.
+  const esperadoUyu =
+    (session?.monto_inicial ?? 0) + (totals?.total_efectivo_uyu ?? 0) - (totals?.total_salidas_uyu ?? 0);
+  const esperadoBrl =
+    (session?.monto_inicial_brl ?? 0) + (totals?.total_efectivo_brl ?? 0) - (totals?.total_salidas_brl ?? 0);
+  // Solo se exige contar reales si hubo fondo o movimiento en BRL (ventas o salidas).
+  const hayMovimientoBrl =
+    (session?.monto_inicial_brl ?? 0) > 0 ||
+    (totals?.total_efectivo_brl ?? 0) !== 0 ||
+    (totals?.total_salidas_brl ?? 0) !== 0;
 
   const contadoUyuNum = contadoUyu.trim() === "" ? null : Math.round(Number(contadoUyu)); // pesos enteros
   const contadoBrlNum = contadoBrl.trim() === "" ? null : Number(contadoBrl.replace(",", ".")); // reales con centavos (acepta coma o punto)
@@ -329,9 +375,55 @@ export default function CajaPage() {
                   <span>Digital / transferencia</span>
                   <span>$ {fmt(totals.total_digital)}</span>
                 </div>
+                {(totals.total_salidas_uyu > 0 || totals.total_salidas_brl > 0) && (
+                  <div className="flex justify-between text-[var(--error)]">
+                    <span>Salidas del local</span>
+                    <span>
+                      {totals.total_salidas_uyu > 0 && <>− $ {fmt(totals.total_salidas_uyu)}</>}
+                      {totals.total_salidas_uyu > 0 && totals.total_salidas_brl > 0 && " · "}
+                      {totals.total_salidas_brl > 0 && <>− R$ {fmtBRL(totals.total_salidas_brl)}</>}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>
+
+          {/* Salidas del turno */}
+          {outflows.length > 0 && (
+            <div className="data-card bg-[var(--carbon-gray)] border border-[var(--slate-gray)] rounded-xl p-4 space-y-2">
+              <h2 className="text-xs uppercase tracking-wide text-[var(--text-secondary)] font-semibold">
+                Salidas del turno ({outflows.length})
+              </h2>
+              <div className="space-y-1.5 text-sm">
+                {outflows.map((o) => (
+                  <div key={o.id} className="flex items-baseline justify-between gap-3">
+                    <span className="text-[var(--text-secondary)] truncate">
+                      {o.motivo}
+                      <span className="text-[var(--text-muted)] text-xs ml-2">
+                        {new Intl.DateTimeFormat("es-UY", { hour: "2-digit", minute: "2-digit" }).format(new Date(o.created_at))}
+                      </span>
+                    </span>
+                    <span className="font-mono font-semibold text-[var(--error)] shrink-0">
+                      − {o.moneda === "BRL" ? `R$ ${fmtBRL(o.monto)}` : `$ ${fmt(o.monto)}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <button
+            onClick={() => {
+              setSalidaMonto("");
+              setSalidaMotivo("");
+              setSalidaMoneda("UYU");
+              setShowSalidaModal(true);
+            }}
+            className="w-full py-3 rounded-lg font-bold uppercase tracking-wide transition-all border border-[var(--warning)] text-[var(--warning)] hover:bg-[rgba(255,170,0,0.08)]"
+          >
+            − Registrar salida
+          </button>
 
           <button
             onClick={() => {
@@ -399,16 +491,26 @@ export default function CajaPage() {
                 <span>Digital / transferencia</span>
                 <span>$ {fmt(totals.total_digital)}</span>
               </div>
+              {(totals.total_salidas_uyu > 0 || totals.total_salidas_brl > 0) && (
+                <div className="flex justify-between text-[var(--error)]">
+                  <span>Salidas del local</span>
+                  <span>
+                    {totals.total_salidas_uyu > 0 && <>− $ {fmt(totals.total_salidas_uyu)}</>}
+                    {totals.total_salidas_uyu > 0 && totals.total_salidas_brl > 0 && " · "}
+                    {totals.total_salidas_brl > 0 && <>− R$ {fmtBRL(totals.total_salidas_brl)}</>}
+                  </span>
+                </div>
+              )}
               {/* El esperado en caja recién se revela tras confirmar el conteo (arqueo ciego). */}
               {arqueoConfirmado && (
                 <>
                   <div className="flex justify-between border-t border-[var(--slate-gray)] pt-2 font-semibold">
                     <span className="text-[var(--text-secondary)]">Efectivo total en caja $</span>
-                    <span>$ {fmt(session.monto_inicial + totals.total_efectivo_uyu)}</span>
+                    <span>$ {fmt(esperadoUyu)}</span>
                   </div>
                   <div className="flex justify-between font-semibold">
                     <span className="text-[var(--text-secondary)]">Efectivo total en caja R$</span>
-                    <span>R$ {fmtBRL(session.monto_inicial_brl + totals.total_efectivo_brl)}</span>
+                    <span>R$ {fmtBRL(esperadoBrl)}</span>
                   </div>
                 </>
               )}
@@ -629,6 +731,14 @@ export default function CajaPage() {
                         $ {fmt(s.total_digital ?? 0)} dig
                       </p>
                     )}
+                    {((s.total_salidas_uyu ?? 0) > 0 || (s.total_salidas_brl ?? 0) > 0) && (
+                      <p className="text-[var(--error)] text-xs">
+                        Salidas:{" "}
+                        {(s.total_salidas_uyu ?? 0) > 0 && <>$ {fmt(s.total_salidas_uyu ?? 0)}</>}
+                        {(s.total_salidas_uyu ?? 0) > 0 && (s.total_salidas_brl ?? 0) > 0 && " · "}
+                        {(s.total_salidas_brl ?? 0) > 0 && <>R$ {fmtBRL(s.total_salidas_brl ?? 0)}</>}
+                      </p>
+                    )}
                     <p className="text-[var(--text-secondary)] text-xs">
                       {s.cantidad_ventas ?? 0} ventas
                     </p>
@@ -650,6 +760,90 @@ export default function CajaPage() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ──────── MODAL: REGISTRAR SALIDA ──────── */}
+      {showSalidaModal && session && (
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+          <div className="bg-[var(--deep-dark)] border border-[var(--warning)] rounded-2xl p-6 w-full max-w-sm shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold uppercase tracking-wide text-[var(--warning)]">
+                Registrar salida
+              </h2>
+              <button
+                onClick={() => setShowSalidaModal(false)}
+                className="w-7 h-7 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--error)] transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-xs text-[var(--text-secondary)]">
+              Plata que sale de la caja durante el turno (proveedor, compra, etc.).
+              Se descuenta del efectivo esperado en el arqueo.
+            </p>
+            <form onSubmit={handleRegistrarSalida} className="space-y-4">
+              <div className="flex gap-3">
+                <div className="flex-1 space-y-1.5">
+                  <label className="block text-sm text-[var(--text-secondary)]">Monto</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={salidaMonto}
+                    onChange={(e) => setSalidaMonto(e.target.value)}
+                    placeholder="0"
+                    autoFocus
+                    className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--warning)] transition-colors font-mono text-lg"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-sm text-[var(--text-secondary)]">Moneda</label>
+                  <div className="flex rounded-lg border border-[var(--slate-gray)] overflow-hidden">
+                    {(["UYU", "BRL"] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setSalidaMoneda(m)}
+                        className={`px-4 py-3 text-sm font-bold transition-all ${
+                          salidaMoneda === m
+                            ? "bg-[var(--warning)] text-[var(--deep-dark)]"
+                            : "text-[var(--text-secondary)] hover:text-[var(--warning)]"
+                        }`}
+                      >
+                        {m === "UYU" ? "$" : "R$"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-sm text-[var(--text-secondary)]">Motivo (obligatorio)</label>
+                <input
+                  type="text"
+                  value={salidaMotivo}
+                  onChange={(e) => setSalidaMotivo(e.target.value)}
+                  placeholder="Ej: pago al sodero"
+                  className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--warning)] transition-colors"
+                />
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowSalidaModal(false)}
+                  className="flex-1 py-3 rounded-lg font-bold uppercase tracking-wide border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)] transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salidaInvalida}
+                  className="flex-1 py-3 rounded-lg font-bold uppercase tracking-wide transition-all border border-[var(--warning)] text-[var(--warning)] hover:bg-[rgba(255,170,0,0.08)] disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {savingSalida ? "Guardando..." : "Registrar"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

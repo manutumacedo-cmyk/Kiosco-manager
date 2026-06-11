@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabaseClient";
-import type { CashSession } from "@/types";
+import type { CashSession, CashOutflow } from "@/types";
 
 export interface SessionTotals {
   total_ventas: number;
@@ -8,6 +8,8 @@ export interface SessionTotals {
   total_digital: number;
   cantidad_ventas: number;
   total_brl_en_uyu: number;   // cajón BRL valuado en UYU (Σ mov_brl × tasa) — para el invariante
+  total_salidas_uyu: number;  // salidas del local en pesos durante el turno
+  total_salidas_brl: number;  // salidas del local en reales durante el turno
 }
 
 /**
@@ -29,15 +31,30 @@ export async function getOpenSession(): Promise<CashSession | null> {
  * Devuelve ceros si todavía no hay ventas asociadas (paso 3.3 las vincula).
  */
 export async function getSessionTotals(sessionId: string): Promise<SessionTotals> {
-  const { data, error } = await supabase
-    .from("sales")
-    .select("total, metodo_pago, mov_efectivo_uyu, mov_efectivo_brl, tasa_cambio")
-    .eq("session_id", sessionId)
-    .eq("estado", "activa");
+  const [salesRes, outflowsRes] = await Promise.all([
+    supabase
+      .from("sales")
+      .select("total, metodo_pago, mov_efectivo_uyu, mov_efectivo_brl, tasa_cambio")
+      .eq("session_id", sessionId)
+      .eq("estado", "activa"),
+    supabase
+      .from("cash_outflows")
+      .select("monto, moneda")
+      .eq("session_id", sessionId),
+  ]);
 
-  if (error) throw new Error(error.message);
+  if (salesRes.error) throw new Error(salesRes.error.message);
+  if (outflowsRes.error) throw new Error(outflowsRes.error.message);
 
-  const sales = data || [];
+  const sales = salesRes.data || [];
+  const outflows = outflowsRes.data || [];
+
+  const total_salidas_uyu = outflows
+    .filter((o) => o.moneda === "UYU")
+    .reduce((sum, o) => sum + Number(o.monto || 0), 0);
+  const total_salidas_brl = outflows
+    .filter((o) => o.moneda === "BRL")
+    .reduce((sum, o) => sum + Number(o.monto || 0), 0);
 
   const total_ventas = sales.reduce((sum, s) => sum + Number(s.total || 0), 0);
 
@@ -62,7 +79,43 @@ export async function getSessionTotals(sessionId: string): Promise<SessionTotals
     total_digital,
     cantidad_ventas: sales.length,
     total_brl_en_uyu,
+    total_salidas_uyu,
+    total_salidas_brl,
   };
+}
+
+/**
+ * Registra una salida de plata del local via RPC atómica.
+ * La función SQL valida turno abierto, monto > 0 y motivo no vacío.
+ */
+export async function registerCashOutflow(
+  sessionId: string,
+  monto: number,
+  moneda: "UYU" | "BRL",
+  motivo: string
+): Promise<void> {
+  const { error } = await supabase.rpc("register_cash_outflow", {
+    p_session_id: sessionId,
+    p_monto: monto,
+    p_moneda: moneda,
+    p_motivo: motivo.trim(),
+  });
+
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Salidas de una sesión, más recientes primero.
+ */
+export async function fetchSessionOutflows(sessionId: string): Promise<CashOutflow[]> {
+  const { data, error } = await supabase
+    .from("cash_outflows")
+    .select("*")
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as CashOutflow[];
 }
 
 /**

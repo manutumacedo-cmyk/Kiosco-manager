@@ -55,14 +55,29 @@ CREATE TABLE IF NOT EXISTS cash_sessions (
   -- esperado = fondo inicial + efectivo neto del turno. >0 sobra · <0 falta · 0 cuadra.
   efectivo_contado_uyu NUMERIC(10,2),
   efectivo_contado_brl NUMERIC(10,2),
+  -- Salidas del local durante el turno (snapshot al cierre, ver cash_outflows)
+  total_salidas_uyu   NUMERIC(10,2),
+  total_salidas_brl   NUMERIC(10,2),
+  -- esperado = fondo inicial + efectivo neto de ventas − salidas del turno
   diferencia_uyu      NUMERIC(10,2) GENERATED ALWAYS AS (
-                        efectivo_contado_uyu - (monto_inicial + COALESCE(total_efectivo_uyu, 0))
+                        efectivo_contado_uyu - (monto_inicial + COALESCE(total_efectivo_uyu, 0) - COALESCE(total_salidas_uyu, 0))
                       ) STORED,
   diferencia_brl      NUMERIC(10,2) GENERATED ALWAYS AS (
-                        efectivo_contado_brl - (monto_inicial_brl + COALESCE(total_efectivo_brl, 0))
+                        efectivo_contado_brl - (monto_inicial_brl + COALESCE(total_efectivo_brl, 0) - COALESCE(total_salidas_brl, 0))
                       ) STORED,
   created_at          TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
+
+-- ---- cash_outflows (salidas de plata del local durante el turno) ---------
+CREATE TABLE IF NOT EXISTS cash_outflows (
+  id          UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id  UUID          NOT NULL REFERENCES cash_sessions(id),
+  monto       NUMERIC(10,2) NOT NULL CHECK (monto > 0),
+  moneda      TEXT          NOT NULL CHECK (moneda IN ('UYU','BRL')),
+  motivo      TEXT          NOT NULL,
+  created_at  TIMESTAMPTZ   NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_cash_outflows_session ON cash_outflows(session_id);
 
 -- ---- sales (cabecera de venta) ------------------------------------------
 CREATE TABLE IF NOT EXISTS sales (
@@ -429,6 +444,8 @@ DECLARE
   v_efectivo_brl     NUMERIC;
   v_digital          NUMERIC;
   v_cantidad         INTEGER;
+  v_salidas_uyu      NUMERIC;
+  v_salidas_brl      NUMERIC;
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM cash_sessions WHERE id = p_session_id AND estado = 'abierta'
@@ -449,6 +466,14 @@ BEGIN
   FROM sales
   WHERE session_id = p_session_id AND estado = 'activa';
 
+  -- Salidas del turno, por moneda
+  SELECT
+    COALESCE(SUM(CASE WHEN moneda = 'UYU' THEN monto ELSE 0 END), 0),
+    COALESCE(SUM(CASE WHEN moneda = 'BRL' THEN monto ELSE 0 END), 0)
+  INTO v_salidas_uyu, v_salidas_brl
+  FROM cash_outflows
+  WHERE session_id = p_session_id;
+
   UPDATE cash_sessions SET
     estado             = 'cerrada',
     cerrado_por        = p_cerrado_por,
@@ -460,8 +485,44 @@ BEGIN
     total_digital        = v_digital,
     cantidad_ventas      = v_cantidad,
     efectivo_contado_uyu = p_efectivo_contado_uyu,
-    efectivo_contado_brl = p_efectivo_contado_brl
+    efectivo_contado_brl = p_efectivo_contado_brl,
+    total_salidas_uyu    = v_salidas_uyu,
+    total_salidas_brl    = v_salidas_brl
   WHERE id = p_session_id;
+END;
+$$;
+
+-- 5b) Registrar salida de caja (atómica: exige turno abierto, monto > 0 y motivo)
+CREATE OR REPLACE FUNCTION register_cash_outflow(
+  p_session_id UUID,
+  p_monto      NUMERIC,
+  p_moneda     TEXT,
+  p_motivo     TEXT
+)
+RETURNS UUID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_id UUID;
+BEGIN
+  IF p_monto IS NULL OR p_monto <= 0 THEN
+    RAISE EXCEPTION 'El monto debe ser mayor a cero';
+  END IF;
+  IF trim(coalesce(p_motivo, '')) = '' THEN
+    RAISE EXCEPTION 'El motivo es obligatorio';
+  END IF;
+
+  -- Lock de la sesión: evita registrar una salida mientras otro la cierra
+  PERFORM 1 FROM cash_sessions WHERE id = p_session_id AND estado = 'abierta' FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'No hay turno abierto para registrar la salida';
+  END IF;
+
+  INSERT INTO cash_outflows (session_id, monto, moneda, motivo)
+  VALUES (p_session_id, p_monto, upper(p_moneda), trim(p_motivo))
+  RETURNING id INTO v_id;
+
+  RETURN v_id;
 END;
 $$;
 
