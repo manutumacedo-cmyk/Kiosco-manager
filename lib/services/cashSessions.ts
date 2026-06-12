@@ -140,13 +140,19 @@ export async function openCashSession(
 /**
  * Devuelve las últimas `limit` sesiones cerradas, ordenadas por cierre DESC.
  */
-export async function getClosedSessions(limit = 10): Promise<CashSession[]> {
-  const { data, error } = await supabase
+export async function getClosedSessions(limit = 10, userId?: string | null): Promise<CashSession[]> {
+  let query = supabase
     .from("cash_sessions")
     .select("*")
     .eq("estado", "cerrada")
     .order("cierre_at", { ascending: false })
     .limit(limit);
+
+  if (userId) {
+    query = query.eq("user_id", userId);
+  }
+
+  const { data, error } = await query;
 
   if (error) throw new Error(error.message);
   return (data ?? []) as CashSession[];

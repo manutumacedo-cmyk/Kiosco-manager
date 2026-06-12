@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import BrandMark from "@/components/BrandMark";
 
 interface MenuCard {
@@ -7,43 +8,25 @@ interface MenuCard {
   description: string;
   icon: string;
   color: "cyan" | "magenta";
+  roles: ("admin" | "cajero")[];
 }
 
 const MENU_CARDS: MenuCard[] = [
-  {
-    href: "/productos",
-    title: "Productos",
-    description: "Gestión de inventario y reposición",
-    icon: "📦",
-    color: "cyan",
-  },
   {
     href: "/ventas/nueva",
     title: "Nueva Venta",
     description: "Punto de venta (POS)",
     icon: "🛒",
     color: "magenta",
+    roles: ["admin", "cajero"],
   },
   {
-    href: "/combos",
-    title: "Combos",
-    description: "Administrar combos y tipo de cambio",
-    icon: "🎁",
+    href: "/productos",
+    title: "Productos",
+    description: "Gestión de inventario y reposición",
+    icon: "📦",
     color: "cyan",
-  },
-  {
-    href: "/reportes/hoy",
-    title: "Reportes",
-    description: "Dashboard y ganancia limpia",
-    icon: "📊",
-    color: "magenta",
-  },
-  {
-    href: "/reportes/ventas",
-    title: "Historial",
-    description: "Ventas anteriores y cancelaciones",
-    icon: "📋",
-    color: "cyan",
+    roles: ["admin", "cajero"],
   },
   {
     href: "/caja",
@@ -51,10 +34,48 @@ const MENU_CARDS: MenuCard[] = [
     description: "Apertura y cierre de turno",
     icon: "💰",
     color: "magenta",
+    roles: ["admin", "cajero"],
+  },
+  {
+    href: "/combos",
+    title: "Combos",
+    description: "Administrar combos y tipo de cambio",
+    icon: "🎁",
+    color: "cyan",
+    roles: ["admin"],
+  },
+  {
+    href: "/reportes/hoy",
+    title: "Reportes",
+    description: "Dashboard y ganancia limpia",
+    icon: "📊",
+    color: "magenta",
+    roles: ["admin"],
+  },
+  {
+    href: "/reportes/ventas",
+    title: "Historial",
+    description: "Ventas anteriores y cancelaciones",
+    icon: "📋",
+    color: "cyan",
+    roles: ["admin"],
+  },
+  {
+    href: "/usuarios",
+    title: "Usuarios",
+    description: "Gestión de cuentas y roles",
+    icon: "👥",
+    color: "magenta",
+    roles: ["admin"],
   },
 ];
 
-export default function Home() {
+export default async function Home() {
+  const headersList = await headers();
+  const role = (headersList.get("x-user-role") ?? "cajero") as "admin" | "cajero";
+
+  const visibleCards = MENU_CARDS.filter((card) => card.roles.includes(role));
+
   return (
     <div className="min-h-screen bg-[var(--deep-dark)] p-6">
       <div className="max-w-6xl mx-auto space-y-8">
@@ -70,7 +91,7 @@ export default function Home() {
 
         {/* Menu Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {MENU_CARDS.map((card) => (
+          {visibleCards.map((card) => (
             <Link
               key={card.href}
               href={card.href}
@@ -83,7 +104,9 @@ export default function Home() {
                 <div className="text-5xl">{card.icon}</div>
                 <h2
                   className={`text-2xl font-bold ${
-                    card.color === "cyan" ? "text-[var(--neon-cyan)]" : "text-[var(--neon-magenta)]"
+                    card.color === "cyan"
+                      ? "text-[var(--neon-cyan)]"
+                      : "text-[var(--neon-magenta)]"
                   }`}
                 >
                   {card.title}
