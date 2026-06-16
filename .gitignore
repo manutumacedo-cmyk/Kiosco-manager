@@ -40,3 +40,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .gstack/
+
+# claude code — local settings y artefactos de sesión
+.claude/settings.local.json
+.agents/
+tmp_qa_*
