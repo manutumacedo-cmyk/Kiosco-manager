@@ -234,50 +234,107 @@ body {
   color: var(--text-muted);
 }
 
-/* ---- Marca 24 SIETE: cartel de neón en CSS (sin imágenes) ----
-   Escala con el font-size del wrapper (todo en em). */
+/* ---- Marca 24 SIETE: emblema de neón circular en CSS (sin imágenes) ----
+   Escala con el font-size del wrapper (todo en em).
+   Paleta propia de la marca (no pisa --neon-cyan/--neon-magenta globales). */
 .brand-mark {
+  --brand-cyan: #00e5ff;
+  --brand-violet: #7b2fff;
+  --brand-magenta: #ff00cc;
+  --brand-blue: #4040ff;
+  --brand-bg-center: #12003a;
+  --brand-bg-edge: #000510;
+
+  position: relative;
   display: inline-flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.15em;
-  padding: 1em 1.7em 1.1em;
-  border: 2px solid var(--neon-cyan);
-  border-radius: 1.1em;
-  background:
-    radial-gradient(ellipse at 50% 0%, rgba(0, 243, 255, 0.08), transparent 65%),
-    var(--dark-bg);
-  box-shadow:
-    0 0 12px rgba(0, 243, 255, 0.35),
-    0 0 36px rgba(0, 243, 255, 0.12),
-    inset 0 0 18px rgba(0, 243, 255, 0.08);
+  justify-content: center;
+  gap: 0.2em;
+  width: 9em;
+  height: 9em;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 45%,
+    var(--brand-bg-center) 0%,
+    var(--brand-bg-edge) 78%
+  );
+  /* El logo "ilumina" la pantalla detrás: halo difuso cian + violeta */
+  filter: drop-shadow(0 0 0.5em rgba(0, 229, 255, 0.22))
+    drop-shadow(0 0 1.4em rgba(123, 47, 255, 0.18));
   animation: brand-flicker 7s linear infinite;
 }
 
+/* Anillos: degradado cónico recortado a un aro con la máscara content-box XOR.
+   Exterior: cian arriba → índigo costados → magenta abajo.
+   Interior: mismo recorrido desfasado (violeta arriba → cian abajo). */
+.brand-mark-ring-outer,
+.brand-mark-ring-inner {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+
+.brand-mark-ring-outer {
+  inset: 0;
+  padding: 0.14em;
+  background: conic-gradient(
+    var(--brand-cyan),
+    var(--brand-blue) 25%,
+    var(--brand-magenta) 50%,
+    var(--brand-blue) 75%,
+    var(--brand-cyan)
+  );
+  filter: drop-shadow(0 0 0.18em rgba(0, 229, 255, 0.55));
+}
+
+.brand-mark-ring-inner {
+  inset: 0.4em;
+  padding: 0.09em;
+  background: conic-gradient(
+    var(--brand-violet),
+    var(--brand-magenta) 25%,
+    var(--brand-cyan) 50%,
+    var(--brand-blue) 75%,
+    var(--brand-violet)
+  );
+  filter: drop-shadow(0 0 0.14em rgba(123, 47, 255, 0.5));
+  opacity: 0.85;
+}
+
+/* Texto en degradado: background-clip + color transparente. El glow va con
+   drop-shadow (sigue la forma del glifo); text-shadow acá pintaría el glifo
+   entero porque el fill es transparente. */
 .brand-mark-24 {
   font-family: var(--font-geist-mono), monospace;
-  font-size: 3.6em;
+  font-size: 3.2em;
   font-weight: 800;
   line-height: 1;
   letter-spacing: 0.04em;
-  color: var(--neon-cyan);
-  text-shadow:
-    0 0 4px rgba(0, 243, 255, 0.9),
-    0 0 14px rgba(0, 243, 255, 0.6),
-    0 0 30px rgba(0, 243, 255, 0.35);
+  background: linear-gradient(100deg, var(--brand-cyan) 15%, var(--brand-violet) 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 0.06em rgba(0, 229, 255, 0.85))
+    drop-shadow(0 0 0.28em rgba(123, 47, 255, 0.5));
 }
 
 .brand-mark-siete {
   font-family: var(--font-geist-mono), monospace;
-  font-size: 1.1em;
+  font-size: 1.05em;
   font-weight: 700;
-  letter-spacing: 0.6em;
-  margin-right: -0.6em; /* compensa el tracking sobrante del último carácter */
-  color: var(--neon-magenta);
-  text-shadow:
-    0 0 4px rgba(255, 0, 255, 0.9),
-    0 0 12px rgba(255, 0, 255, 0.55),
-    0 0 26px rgba(255, 0, 255, 0.3);
+  letter-spacing: 0.5em;
+  margin-right: -0.5em; /* compensa el tracking sobrante del último carácter */
+  background: linear-gradient(90deg, var(--brand-magenta), var(--brand-violet));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 0.12em rgba(255, 0, 204, 0.8))
+    drop-shadow(0 0 0.5em rgba(255, 0, 204, 0.35));
 }
 
 /* Parpadeo de tubo de neón: dos micro-caídas por ciclo, casi subliminal */
