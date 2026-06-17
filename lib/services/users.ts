@@ -54,10 +54,12 @@ export async function createUser(
 }
 
 export async function toggleUserActive(id: string, active: boolean): Promise<void> {
-  await supabaseServer.from("users").update({ active }).eq("id", id);
+  const { error } = await supabaseServer.from("users").update({ active }).eq("id", id);
+  if (error) throw new Error(error.message);
 }
 
 export async function resetPassword(id: string, newPassword: string): Promise<void> {
   const password_hash = await bcrypt.hash(newPassword, 12);
-  await supabaseServer.from("users").update({ password_hash }).eq("id", id);
+  const { error } = await supabaseServer.from("users").update({ password_hash }).eq("id", id);
+  if (error) throw new Error(error.message);
 }

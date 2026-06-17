@@ -10,15 +10,20 @@ interface NavItem {
   href: string;
   label: string;
   icon: string;
+  roles: ("admin" | "cajero")[];
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/productos", label: "Productos", icon: "📦" },
-  { href: "/ventas/nueva", label: "Nueva Venta", icon: "🛒" },
-  { href: "/reportes/hoy", label: "Reportes", icon: "📊" },
+  { href: "/productos", label: "Productos", icon: "📦", roles: ["admin", "cajero"] },
+  { href: "/ventas/nueva", label: "Nueva Venta", icon: "🛒", roles: ["admin", "cajero"] },
+  { href: "/reportes/hoy", label: "Reportes", icon: "📊", roles: ["admin"] },
 ];
 
-export default function CyberNav() {
+interface Props {
+  role: "admin" | "cajero";
+}
+
+export default function CyberNav({ role }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
@@ -44,6 +49,8 @@ export default function CyberNav() {
     }
   }
 
+  if (pathname.startsWith("/login")) return null;
+
   return (
     <nav className="bg-[var(--carbon-gray)] border-b border-[var(--slate-gray)] px-6 py-4">
       <div className="flex items-center justify-between">
@@ -58,7 +65,7 @@ export default function CyberNav() {
 
         {/* Navigation Links */}
         <div className="flex gap-2 items-center">
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.filter((item) => item.roles.includes(role)).map((item) => {
             const isActive = pathname.startsWith(item.href);
             return (
               <Link
