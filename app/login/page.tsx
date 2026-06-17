@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -45,12 +46,30 @@ export default function LoginPage() {
         {/* Logo y título */}
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-4 mb-4">
-            <div className="h-12 w-12 rounded-full neon-border-cyan animate-pulse-cyan" />
-            <h1 className="text-5xl font-bold">
+            <span className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-full animate-pulse-cyan">
+              <Image
+                src="/logo.png"
+                alt="Logo 24 SIETE"
+                width={56}
+                height={56}
+                priority
+                className="h-full w-full object-cover"
+              />
+            </span>
+            <h1 className="text-5xl font-bold leading-none">
               <span className="neon-text-cyan">24</span>
               <span className="neon-text-magenta"> SIETE</span>
             </h1>
-            <div className="h-12 w-12 rounded-full neon-border-magenta animate-pulse-magenta" />
+            <span className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-full animate-pulse-magenta">
+              <Image
+                src="/logo.png"
+                alt="Logo 24 SIETE"
+                width={56}
+                height={56}
+                priority
+                className="h-full w-full object-cover"
+              />
+            </span>
           </div>
           <p className="text-[var(--text-secondary)] font-mono text-sm uppercase tracking-wide">
             24 SIETE: TU SED NO TIENE HORARIO, NOSOTROS TAMPOCO.

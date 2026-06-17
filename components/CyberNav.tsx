@@ -5,22 +5,41 @@ import Link from "next/link";
 import Image from "next/image";
 import { useState, useEffect } from "react";
 import { getOpenSession } from "@/lib/services/cashSessions";
+import {
+  CartIcon,
+  BoxIcon,
+  CashboxIcon,
+  ComboIcon,
+  ChartIcon,
+  HistoryIcon,
+  UsersIcon,
+  LogoutIcon,
+} from "./Icons";
+
+type Role = "admin" | "cajero";
+type Accent = "cyan" | "magenta";
 
 interface NavItem {
   href: string;
   label: string;
-  icon: string;
-  roles: ("admin" | "cajero")[];
+  Icon: React.ComponentType<{ className?: string; size?: number }>;
+  accent: Accent;
+  roles: Role[];
 }
 
+// Todas las opciones del home, en la barra de arriba. Acentos espejados con el
+// launcher del home para que la navegación se sienta una sola cosa.
 const NAV_ITEMS: NavItem[] = [
-  { href: "/productos", label: "Productos", icon: "📦", roles: ["admin", "cajero"] },
-  { href: "/ventas/nueva", label: "Nueva Venta", icon: "🛒", roles: ["admin", "cajero"] },
-  { href: "/reportes/hoy", label: "Reportes", icon: "📊", roles: ["admin"] },
+  { href: "/ventas/nueva", label: "Nueva Venta", Icon: CartIcon, accent: "magenta", roles: ["admin", "cajero"] },
+  { href: "/productos", label: "Productos", Icon: BoxIcon, accent: "cyan", roles: ["admin", "cajero"] },
+  { href: "/combos", label: "Combos", Icon: ComboIcon, accent: "magenta", roles: ["admin"] },
+  { href: "/reportes/hoy", label: "Reportes", Icon: ChartIcon, accent: "magenta", roles: ["admin"] },
+  { href: "/reportes/ventas", label: "Historial", Icon: HistoryIcon, accent: "cyan", roles: ["admin"] },
+  { href: "/usuarios", label: "Usuarios", Icon: UsersIcon, accent: "magenta", roles: ["admin"] },
 ];
 
 interface Props {
-  role: "admin" | "cajero";
+  role: Role;
 }
 
 export default function CyberNav({ role }: Props) {
@@ -51,73 +70,78 @@ export default function CyberNav({ role }: Props) {
 
   if (pathname.startsWith("/login")) return null;
 
+  // /reportes/hoy y /reportes/ventas comparten prefijo: matcheo exacto del segmento
+  // para que "Reportes" e "Historial" no queden activos los dos a la vez.
+  const isActive = (href: string) =>
+    pathname === href || pathname.startsWith(href + "/");
+
+  const visible = NAV_ITEMS.filter((item) => item.roles.includes(role));
+
   return (
-    <nav className="bg-[var(--carbon-gray)] border-b border-[var(--slate-gray)] px-6 py-4">
-      <div className="flex items-center justify-between">
+    <nav className="border-b border-[var(--slate-gray)] bg-[var(--carbon-gray)] px-4 py-3 md:px-6">
+      <div className="flex flex-wrap items-center justify-between gap-y-3">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-3 group">
-          <div className="text-3xl font-bold">
+        <Link href="/" className="flex items-center gap-3">
+          <div className="text-2xl font-bold leading-none md:text-3xl">
             <span className="neon-text-cyan">24</span>
             <span className="neon-text-magenta"> SIETE</span>
           </div>
           <Image src="/logo.png" alt="24 SIETE" width={32} height={32} />
         </Link>
 
-        {/* Navigation Links */}
-        <div className="flex gap-2 items-center">
-          {NAV_ITEMS.filter((item) => item.roles.includes(role)).map((item) => {
-            const isActive = pathname.startsWith(item.href);
+        {/* Navegación */}
+        <div className="flex flex-wrap items-center gap-2">
+          {visible.map(({ href, label, Icon, accent }) => {
+            const accentVar = accent === "cyan" ? "--neon-cyan" : "--neon-magenta";
+            const active = isActive(href);
             return (
               <Link
-                key={item.href}
-                href={item.href}
-                className={`
-                  flex items-center gap-2 px-4 py-2 rounded-lg
-                  font-semibold text-sm uppercase tracking-wide
-                  transition-all duration-300
-                  ${
-                    isActive
-                      ? "neon-outline-cyan neon-text-cyan"
-                      : "border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)]"
-                  }
-                `}
+                key={href}
+                href={href}
+                aria-current={active ? "page" : undefined}
+                style={{ ["--accent" as string]: `var(${accentVar})` }}
+                className={`flex min-h-[40px] items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold uppercase tracking-wide transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] motion-reduce:transition-none ${
+                  active
+                    ? "border border-[var(--accent)] text-[var(--accent)] shadow-[0_0_12px_-2px_var(--accent)]"
+                    : "border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                }`}
               >
-                <span className="text-lg">{item.icon}</span>
-                <span>{item.label}</span>
+                <Icon size={20} className="flex-shrink-0" />
+                <span className="hidden md:inline">{label}</span>
               </Link>
             );
           })}
 
-          {/* Link Caja con indicador de sesión */}
+          {/* Caja — con indicador de turno abierto */}
           <Link
             href="/caja"
-            className={`
-              flex items-center gap-2 px-4 py-2 rounded-lg
-              font-semibold text-sm uppercase tracking-wide
-              transition-all duration-300
-              ${
-                pathname.startsWith("/caja")
-                  ? "neon-outline-cyan neon-text-cyan"
-                  : "border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)]"
-              }
-            `}
+            aria-current={isActive("/caja") ? "page" : undefined}
+            style={{ ["--accent" as string]: "var(--neon-cyan)" }}
+            className={`flex min-h-[40px] items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold uppercase tracking-wide transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] motion-reduce:transition-none ${
+              isActive("/caja")
+                ? "border border-[var(--accent)] text-[var(--accent)] shadow-[0_0_12px_-2px_var(--accent)]"
+                : "border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+            }`}
           >
-            <span className="text-lg">💰</span>
-            <span>Caja</span>
+            <CashboxIcon size={20} className="flex-shrink-0" />
+            <span className="hidden md:inline">Caja</span>
             {cajaAbierta && (
-              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              <span
+                className="h-2 w-2 rounded-full bg-[var(--success)] shadow-[0_0_6px_var(--success)] motion-safe:animate-pulse"
+                title="Caja abierta"
+              />
             )}
           </Link>
 
-          {/* Botón de Logout */}
+          {/* Salir */}
           <button
             onClick={handleLogout}
             disabled={loggingOut}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--error)] text-[var(--error)] font-semibold text-sm uppercase tracking-wide transition-all duration-300 hover:bg-[var(--error)] hover:text-[var(--dark-bg)]"
             title="Cerrar sesión"
+            className="flex min-h-[40px] items-center gap-2 rounded-lg border border-[var(--error)] px-3 py-2 text-sm font-semibold uppercase tracking-wide text-[var(--error)] transition-all duration-150 hover:bg-[var(--error)] hover:text-[var(--dark-bg)] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--error)] motion-reduce:transition-none"
           >
-            <span className="text-lg">🔒</span>
-            <span>{loggingOut ? "..." : "Salir"}</span>
+            <LogoutIcon size={20} className="flex-shrink-0" />
+            <span className="hidden md:inline">{loggingOut ? "..." : "Salir"}</span>
           </button>
         </div>
       </div>

@@ -2,35 +2,57 @@
 
 /* ========================================
    24 SIETE - CYBERPUNK/NEON THEME
+   Paleta "tubo de neón" del logo: ramps cián y magenta con
+   profundidad (deep → mid → light → core) + glints (reflejos).
+   Neón con propósito: glow en marca/activo/acción; datos limpios.
    ======================================== */
 
 :root {
-  /* Colores principales */
-  --neon-cyan: #00f3ff;
-  --neon-magenta: #ff00ff;
-  --dark-bg: #050505;
-  --deep-dark: #0a0a0a;
-  --carbon-gray: #1a1a1a;
-  --slate-gray: #2a2a2a;
+  /* --- Ramp CIÁN (tubo de neón "24") --- */
+  --cyan-deep: #0b0b42;       /* sombra interna del tubo */
+  --cyan-glow-dark: #081966;  /* difuminado oscuro del resplandor */
+  --cyan-mid: #063089;        /* cuerpo del tubo */
+  --cyan-soft: #2868ad;       /* borde iluminado */
+  --cyan-light: #5197d9;      /* transición al núcleo */
+  --cyan-core: #87d2fd;       /* núcleo luminoso */
 
-  /* Glow/Resplandor */
-  --cyan-glow: rgba(0, 243, 255, 0.15);
-  --magenta-glow: rgba(255, 0, 255, 0.15);
-  --cyan-bright: #4dffff;
-  --magenta-bright: #ff4dff;
+  /* --- Ramp MAGENTA (tubo de neón "SIETE") --- */
+  --magenta-deep: #37075b;    /* sombra interna */
+  --magenta-glow-dark: #6c0a77; /* difuminado oscuro */
+  --magenta-mid: #a740ae;     /* cuerpo del tubo */
+  --magenta-core: #f088f4;    /* núcleo luminoso */
 
-  /* Texto */
-  --text-primary: #f0f0f0;
-  --text-secondary: #a0a0a0;
-  --text-muted: #606060;
+  /* --- Glints (reflejos / destellos) --- */
+  --glint-soft: #777780;
+  --glint-mid: #c2c1c9;
+  --glint-peak: #f2f2f8;
 
-  /* Estados */
+  /* Colores principales (identidad = núcleo del tubo) */
+  --neon-cyan: var(--cyan-core);
+  --neon-magenta: var(--magenta-core);
+  --dark-bg: #000000;         /* negro puro exterior */
+  --deep-dark: #06040f;       /* fondo de la app, tinte violáceo */
+  --carbon-gray: #100a24;     /* superficie elevada (cards, nav) */
+  --slate-gray: #2b2d31;      /* bordes / rim neutro */
+
+  /* Glow/Resplandor (rgba del núcleo, para halos) */
+  --cyan-glow: rgba(135, 210, 253, 0.18);
+  --magenta-glow: rgba(240, 136, 244, 0.18);
+  --cyan-bright: #a9e2ff;
+  --magenta-bright: #f7a8fa;
+
+  /* Texto (glints) */
+  --text-primary: var(--glint-peak);
+  --text-secondary: var(--glint-mid);
+  --text-muted: #8c8c97;      /* glint con +brillo para placeholder AA */
+
+  /* Estados (semánticos, fuera de marca a propósito — sin glow encima) */
   --success: #00ff88;
   --warning: #ffaa00;
-  --error: #ff0055;
+  --error: #ff2d55;
 
   /* Variables legadas */
-  --background: var(--dark-bg);
+  --background: var(--deep-dark);
   --foreground: var(--text-primary);
 }
 
@@ -42,7 +64,12 @@
 }
 
 body {
-  background: var(--deep-dark);
+  /* Lavado violáceo muy sutil desde arriba: el "reflejo de neón" del logo,
+     sin ruido. background-attachment fixed para que no scrollee. */
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(123, 47, 255, 0.07), transparent 55%),
+    var(--deep-dark);
+  background-attachment: fixed;
   color: var(--text-primary);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 }
@@ -53,28 +80,32 @@ body {
 
 @keyframes neon-pulse {
   0%, 100% {
-    box-shadow: 0 0 10px var(--neon-cyan), 0 0 20px var(--cyan-glow);
+    box-shadow: 0 0 8px var(--cyan-core), 0 0 18px var(--cyan-glow),
+      0 0 32px rgba(6, 48, 137, 0.45);
   }
   50% {
-    box-shadow: 0 0 20px var(--neon-cyan), 0 0 40px var(--cyan-glow);
+    box-shadow: 0 0 16px var(--cyan-core), 0 0 34px var(--cyan-glow),
+      0 0 52px rgba(6, 48, 137, 0.55);
   }
 }
 
 @keyframes neon-pulse-magenta {
   0%, 100% {
-    box-shadow: 0 0 10px var(--neon-magenta), 0 0 20px var(--magenta-glow);
+    box-shadow: 0 0 8px var(--magenta-core), 0 0 18px var(--magenta-glow),
+      0 0 32px rgba(108, 10, 119, 0.45);
   }
   50% {
-    box-shadow: 0 0 20px var(--neon-magenta), 0 0 40px var(--magenta-glow);
+    box-shadow: 0 0 16px var(--magenta-core), 0 0 34px var(--magenta-glow),
+      0 0 52px rgba(108, 10, 119, 0.55);
   }
 }
 
 @keyframes neon-glow {
   from {
-    filter: drop-shadow(0 0 5px var(--neon-cyan)) drop-shadow(0 0 10px var(--cyan-glow));
+    filter: drop-shadow(0 0 4px var(--cyan-core)) drop-shadow(0 0 10px var(--cyan-glow));
   }
   to {
-    filter: drop-shadow(0 0 10px var(--neon-cyan)) drop-shadow(0 0 20px var(--cyan-glow));
+    filter: drop-shadow(0 0 9px var(--cyan-core)) drop-shadow(0 0 20px var(--cyan-glow));
   }
 }
 
@@ -100,10 +131,22 @@ body {
 
 @keyframes neon-pulse-error {
   0%, 100% {
-    box-shadow: 0 0 10px var(--error), 0 0 20px rgba(255, 0, 85, 0.3);
+    box-shadow: 0 0 10px var(--error), 0 0 20px rgba(255, 45, 85, 0.3);
   }
   50% {
-    box-shadow: 0 0 20px var(--error), 0 0 40px rgba(255, 0, 85, 0.5);
+    box-shadow: 0 0 20px var(--error), 0 0 40px rgba(255, 45, 85, 0.5);
+  }
+}
+
+/* Respeto a reduced-motion: nada de movimiento esencial para entender estado */
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-cyan,
+  .animate-pulse-magenta,
+  .animate-glow,
+  .animate-slide-in,
+  .animate-fade-in,
+  .animate-pulse-error {
+    animation: none;
   }
 }
 
@@ -113,44 +156,50 @@ body {
 
 /* Bordes dobles estilo logo */
 .neon-border-cyan {
-  border: 4px double var(--neon-cyan);
-  box-shadow: 0 0 10px rgba(0, 243, 255, 0.3);
+  border: 4px double var(--cyan-core);
+  box-shadow: 0 0 10px rgba(135, 210, 253, 0.35), 0 0 24px rgba(6, 48, 137, 0.4);
 }
 
 .neon-border-magenta {
-  border: 4px double var(--neon-magenta);
-  box-shadow: 0 0 10px rgba(255, 0, 255, 0.3);
+  border: 4px double var(--magenta-core);
+  box-shadow: 0 0 10px rgba(240, 136, 244, 0.35), 0 0 24px rgba(108, 10, 119, 0.4);
 }
 
-/* Bordes simples con glow */
+/* Bordes simples con glow (tubo): núcleo + halo + difuminado profundo */
 .neon-outline-cyan {
-  border: 2px solid var(--neon-cyan);
-  box-shadow: 0 0 8px rgba(0, 243, 255, 0.4), inset 0 0 8px rgba(0, 243, 255, 0.1);
+  border: 2px solid var(--cyan-core);
+  box-shadow: 0 0 8px rgba(135, 210, 253, 0.45), 0 0 20px rgba(6, 48, 137, 0.4),
+    inset 0 0 8px rgba(135, 210, 253, 0.12);
 }
 
 .neon-outline-magenta {
-  border: 2px solid var(--neon-magenta);
-  box-shadow: 0 0 8px rgba(255, 0, 255, 0.4), inset 0 0 8px rgba(255, 0, 255, 0.1);
+  border: 2px solid var(--magenta-core);
+  box-shadow: 0 0 8px rgba(240, 136, 244, 0.45), 0 0 20px rgba(108, 10, 119, 0.4),
+    inset 0 0 8px rgba(240, 136, 244, 0.12);
 }
 
-/* Texto con glow */
+/* Texto con glow de tubo: núcleo blanco-caliente + halo de color + haze profundo */
 .neon-text-cyan {
-  color: var(--neon-cyan);
-  text-shadow: 0 0 10px var(--cyan-glow), 0 0 20px var(--cyan-glow);
+  color: var(--cyan-core);
+  text-shadow: 0 0 1px rgba(242, 242, 248, 0.7), 0 0 8px rgba(135, 210, 253, 0.6),
+    0 0 18px rgba(135, 210, 253, 0.4), 0 0 32px rgba(6, 48, 137, 0.5);
 }
 
 .neon-text-magenta {
-  color: var(--neon-magenta);
-  text-shadow: 0 0 10px var(--magenta-glow), 0 0 20px var(--magenta-glow);
+  color: var(--magenta-core);
+  text-shadow: 0 0 1px rgba(242, 242, 248, 0.7), 0 0 8px rgba(240, 136, 244, 0.6),
+    0 0 18px rgba(240, 136, 244, 0.4), 0 0 32px rgba(108, 10, 119, 0.5);
 }
 
-/* Fondos con gradiente */
+/* Fondos con gradiente de tubo (radial: núcleo tenue al centro, profundo al borde) */
 .neon-bg-cyan {
-  background: linear-gradient(135deg, var(--dark-bg) 0%, var(--cyan-glow) 100%);
+  background: radial-gradient(120% 120% at 50% 0%, rgba(6, 48, 137, 0.35) 0%,
+    var(--deep-dark) 70%);
 }
 
 .neon-bg-magenta {
-  background: linear-gradient(135deg, var(--dark-bg) 0%, var(--magenta-glow) 100%);
+  background: radial-gradient(120% 120% at 50% 0%, rgba(108, 10, 119, 0.32) 0%,
+    var(--deep-dark) 70%);
 }
 
 /* Animaciones */
@@ -185,7 +234,7 @@ body {
 
 .neon-hover-cyan:hover {
   border-color: var(--cyan-bright);
-  box-shadow: 0 0 15px rgba(0, 243, 255, 0.6), 0 0 30px rgba(0, 243, 255, 0.3);
+  box-shadow: 0 0 15px rgba(135, 210, 253, 0.6), 0 0 30px rgba(6, 48, 137, 0.45);
   transform: translateY(-2px);
 }
 
@@ -195,11 +244,12 @@ body {
 
 .neon-hover-magenta:hover {
   border-color: var(--magenta-bright);
-  box-shadow: 0 0 15px rgba(255, 0, 255, 0.6), 0 0 30px rgba(255, 0, 255, 0.3);
+  box-shadow: 0 0 15px rgba(240, 136, 244, 0.6), 0 0 30px rgba(108, 10, 119, 0.45);
   transform: translateY(-2px);
 }
 
-/* Tarjetas de datos (para productos) */
+/* Tarjetas de datos (para productos). Superficie violácea elevada, rim sobrio;
+   el glow cián aparece solo en hover (no satura la grilla). */
 .data-card {
   background: var(--carbon-gray);
   border: 2px solid var(--slate-gray);
@@ -210,11 +260,12 @@ body {
 }
 
 .data-card:hover {
-  border-color: var(--neon-cyan);
-  box-shadow: 0 8px 30px rgba(0, 243, 255, 0.2);
+  border-color: var(--cyan-core);
+  box-shadow: 0 8px 30px rgba(135, 210, 253, 0.18), 0 0 18px rgba(6, 48, 137, 0.3);
 }
 
-/* Input fields estilo cyberpunk */
+/* Input fields: limpios y de alto contraste. El neón es solo el foco
+   (el dato manda; sin glow encima del valor). */
 .cyber-input {
   background: var(--carbon-gray);
   border: 1px solid var(--slate-gray);
@@ -226,8 +277,8 @@ body {
 
 .cyber-input:focus {
   outline: none;
-  border-color: var(--neon-cyan);
-  box-shadow: 0 0 10px rgba(0, 243, 255, 0.3);
+  border-color: var(--cyan-core);
+  box-shadow: 0 0 0 1px rgba(135, 210, 253, 0.3), 0 0 12px rgba(135, 210, 253, 0.25);
 }
 
 .cyber-input::placeholder {
@@ -367,11 +418,14 @@ body {
   cursor: pointer;
 }
 
+/* Hover = tubo "encendido": gradiente del ramp + glow en capas. El núcleo
+   se aclara hacia glint para el efecto de luz caliente. */
 .cyber-button:hover:not(:disabled),
 .cyber-button-cyan:hover:not(:disabled) {
-  background: var(--neon-cyan);
+  background: linear-gradient(160deg, var(--cyan-soft) 0%, var(--cyan-core) 100%);
+  border-color: var(--cyan-core);
   color: var(--dark-bg);
-  box-shadow: 0 0 20px rgba(0, 243, 255, 0.5);
+  box-shadow: 0 0 18px rgba(135, 210, 253, 0.55), 0 0 36px rgba(6, 48, 137, 0.45);
   transform: translateY(-2px);
 }
 
@@ -388,9 +442,10 @@ body {
 }
 
 .cyber-button-magenta:hover:not(:disabled) {
-  background: var(--neon-magenta);
+  background: linear-gradient(160deg, var(--magenta-mid) 0%, var(--magenta-core) 100%);
+  border-color: var(--magenta-core);
   color: var(--dark-bg);
-  box-shadow: 0 0 20px rgba(255, 0, 255, 0.5);
+  box-shadow: 0 0 18px rgba(240, 136, 244, 0.55), 0 0 36px rgba(108, 10, 119, 0.45);
   transform: translateY(-2px);
 }
 
@@ -412,5 +467,5 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--neon-cyan);
-  box-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
+  box-shadow: 0 0 10px rgba(135, 210, 253, 0.5);
 }
