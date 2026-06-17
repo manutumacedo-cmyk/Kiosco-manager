@@ -71,26 +71,6 @@ Available skills: /gstack-office-hours, /gstack-plan-ceo-review, /gstack-plan-en
 /gstack-document-generate, /gstack-codex, /gstack-cso, /gstack-autoplan, /gstack-pair-agent,
 /gstack-careful, /gstack-freeze, /gstack-guard, /gstack-unfreeze, /gstack-upgrade, /gstack-learn.
 
-## Subagentes — routing de modelos
-
-Cuando una tarea la puede hacer un agente en paralelo o de forma independiente, creá un
-subagente con el modelo que corresponda. No delegues si ya tenés el contexto para resolverlo
-en 1-2 tool calls; el agente vale cuando hay trabajo genuinamente separable o costoso para
-el contexto principal.
-
-| Modelo | Cuándo usarlo |
-|--------|---------------|
-| **haiku** | Búsquedas rápidas, lecturas de archivos sueltos, greps, preguntas de contexto corto, tareas con respuesta < 200 palabras, QA puntual de un componente. |
-| **sonnet** | Implementar una feature siguiendo un plan ya definido, refactors, escribir SQL, resolver un bug con causa conocida, cualquier tarea de código con más de 2-3 archivos. |
-| **opus** | Planear arquitectura, decidir alcance de una feature con trade-offs, análisis de seguridad o dinero, revisar un plan complejo, tareas donde la respuesta incorrecta tiene alto costo. |
-
-Reglas:
-- Si el usuario no especifica modelo, aplicá la tabla de arriba.
-- Tarea de plomería (leer + buscar + reportar) → haiku.
-- Tarea de construcción (editar + implementar + probar) → sonnet.
-- Tarea de diseño de solución o decisión con consecuencias → opus.
-- Si no estás seguro, sonnet es el default seguro.
-
 ## Skill routing
 Al EMPEZAR cada tarea, evaluá si encaja una skill de gstack y proponéla (o usala) antes
 de arrancar a codear. No reimplementes a mano lo que una skill ya hace. Guía rápida:
