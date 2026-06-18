@@ -63,6 +63,8 @@ export interface CashSession {
   efectivo_contado_brl: number | null;  // arqueo: reales contados al cierre
   total_salidas_uyu: number | null;     // snapshot al cierre: salidas del local en pesos
   total_salidas_brl: number | null;     // snapshot al cierre: salidas del local en reales
+  total_entradas_uyu: number | null;    // snapshot al cierre: entradas de plata en pesos (B32)
+  total_entradas_brl: number | null;    // snapshot al cierre: entradas de plata en reales (B32)
   diferencia_uyu: number | null;        // contado − esperado (pesos); >0 sobra, <0 falta
   diferencia_brl: number | null;        // contado − esperado (reales)
   created_at: string;
@@ -73,6 +75,7 @@ export interface CashOutflow {
   session_id: string;
   monto: number;
   moneda: 'UYU' | 'BRL';
+  tipo: 'entrada' | 'salida';
   motivo: string;
   created_at: string;
 }
@@ -88,6 +91,8 @@ export interface Sale {
   vuelto: number | null;
   vuelto_moneda: 'UYU' | 'BRL' | null; // NULL = UYU (default); 'BRL' cuando el vuelto se dio en reales
   estado: string; // 'activa' | 'anulada'
+  anulada_por: string | null;  // quién anuló la venta (B30)
+  anulada_at: string | null;   // cuándo se anuló (B30)
   session_id: string | null;
   created_at: string;
 }

@@ -10,6 +10,8 @@ export interface SessionTotals {
   total_brl_en_uyu: number;   // cajón BRL valuado en UYU (Σ mov_brl × tasa) — para el invariante
   total_salidas_uyu: number;  // salidas del local en pesos durante el turno
   total_salidas_brl: number;  // salidas del local en reales durante el turno
+  total_entradas_uyu: number; // entradas de plata al local en pesos durante el turno (B32)
+  total_entradas_brl: number; // entradas de plata al local en reales durante el turno (B32)
 }
 
 /**
@@ -39,7 +41,7 @@ export async function getSessionTotals(sessionId: string): Promise<SessionTotals
       .eq("estado", "activa"),
     supabase
       .from("cash_outflows")
-      .select("monto, moneda")
+      .select("monto, moneda, tipo")
       .eq("session_id", sessionId),
   ]);
 
@@ -50,10 +52,16 @@ export async function getSessionTotals(sessionId: string): Promise<SessionTotals
   const outflows = outflowsRes.data || [];
 
   const total_salidas_uyu = outflows
-    .filter((o) => o.moneda === "UYU")
+    .filter((o) => o.moneda === "UYU" && o.tipo === "salida")
     .reduce((sum, o) => sum + Number(o.monto || 0), 0);
   const total_salidas_brl = outflows
-    .filter((o) => o.moneda === "BRL")
+    .filter((o) => o.moneda === "BRL" && o.tipo === "salida")
+    .reduce((sum, o) => sum + Number(o.monto || 0), 0);
+  const total_entradas_uyu = outflows
+    .filter((o) => o.moneda === "UYU" && o.tipo === "entrada")
+    .reduce((sum, o) => sum + Number(o.monto || 0), 0);
+  const total_entradas_brl = outflows
+    .filter((o) => o.moneda === "BRL" && o.tipo === "entrada")
     .reduce((sum, o) => sum + Number(o.monto || 0), 0);
 
   const total_ventas = sales.reduce((sum, s) => sum + Number(s.total || 0), 0);
@@ -81,23 +89,27 @@ export async function getSessionTotals(sessionId: string): Promise<SessionTotals
     total_brl_en_uyu,
     total_salidas_uyu,
     total_salidas_brl,
+    total_entradas_uyu,
+    total_entradas_brl,
   };
 }
 
 /**
- * Registra una salida de plata del local via RPC atómica.
- * La función SQL valida turno abierto, monto > 0 y motivo no vacío.
+ * Registra un movimiento de plata del local (entrada o salida) via RPC atómica.
+ * La función SQL valida turno abierto, monto > 0, tipo y motivo no vacío. B32.
  */
-export async function registerCashOutflow(
+export async function registerCashMovement(
   sessionId: string,
   monto: number,
   moneda: "UYU" | "BRL",
+  tipo: "entrada" | "salida",
   motivo: string
 ): Promise<void> {
-  const { error } = await supabase.rpc("register_cash_outflow", {
+  const { error } = await supabase.rpc("register_cash_movement", {
     p_session_id: sessionId,
     p_monto: monto,
     p_moneda: moneda,
+    p_tipo: tipo,
     p_motivo: motivo.trim(),
   });
 
@@ -105,7 +117,7 @@ export async function registerCashOutflow(
 }
 
 /**
- * Salidas de una sesión, más recientes primero.
+ * Movimientos (entradas y salidas) de una sesión, más recientes primero.
  */
 export async function fetchSessionOutflows(sessionId: string): Promise<CashOutflow[]> {
   const { data, error } = await supabase

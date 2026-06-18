@@ -291,6 +291,39 @@
 - **Impacto:** Un arqueo que solo dice lo que *deberías* tener no detecta descuadres (y los de B23–B25
   pasan inadvertidos). Sin dato de descuadre, no hay control de caja real.
 
+#### B32 · "Registrar salida" no soporta dinero que entra a la caja durante el turno 🔴 — ✅ RESUELTO
+> **Update:** `cash_outflows` ahora modela "movimientos de caja" con columna `tipo`
+> ('entrada'|'salida'). Un solo modal con selector Entrada/Salida (igual al de moneda). El esperado
+> del cierre suma entradas y resta salidas. RPC `register_cash_movement` reemplaza a
+> `register_cash_outflow`; `close_cash_session` guarda el snapshot separado por tipo. Verificado en
+> browser (registrar entrada y salida actualiza los totales correctamente).
+
+- **Dónde:** [`register_cash_outflow`](../lib/sql/00-schema-completo.sql#L496) y la tabla
+  `cash_outflows` solo modelan salidas · botón único "− Registrar salida" en
+  [`app/caja/CajaClient.tsx`](../app/caja/CajaClient.tsx#L398).
+- **Qué pasa:** A veces durante el turno entra plata a la caja que no es una venta del POS (vuelto
+  de un proveedor, un préstamo que se devuelve, etc.). Hoy no hay forma de registrarlo: solo se puede
+  restar plata, nunca sumarla fuera de las ventas.
+- **Impacto:** El efectivo esperado del arqueo (B28) no contempla esas entradas → la caja parece
+  "sobrar" sin explicación, o el cajero tiene que inventar una salida negativa para que cuadre.
+
+#### B33 · El cajero no tiene ninguna forma de anular una venta propia 🟠 — ✅ RESUELTO
+> **Update:** nueva sección "Ventas de este turno" en `/caja` (visible para cajero y admin) con
+> botón Anular por venta. RPC `cancel_sale_own_turno` valida que la venta pertenezca al turno
+> **actualmente abierto** antes de anular — rechaza ventas de turnos cerrados o inexistentes
+> (probado con SQL directo, sin tocar datos reales). De paso se resuelve **B30**: `cancel_sale`
+> ahora recibe `p_anulada_por` y `sales` guarda `anulada_por`/`anulada_at`, visibles también en el
+> historial de `/reportes/ventas` para el admin.
+
+- **Dónde:** middleware bloquea `/reportes` (donde vive "Anular") para `role !== 'admin'` en
+  [`middleware.ts`](../middleware.ts#L8) · botón Anular en
+  [`app/reportes/ventas/page.tsx`](../app/reportes/ventas/page.tsx#L260).
+- **Qué pasa:** Si el cajero cobra mal (producto equivocado, monto equivocado) durante su propio
+  turno, no tiene cómo corregirlo sin un admin presente. En un kiosco nocturno con un solo
+  empleado de turno, eso es habitual y bloqueante.
+- **Impacto:** Errores de cobro quedan en el sistema sin corregir, o el cajero improvisa
+  (anota en un papel, ajusta el cierre a mano) lo que rompe el cuadre real.
+
 ### Datos críticos
 
 #### B29 · No se guarda la tasa de cambio usada en cada venta 🔴 — ✅ RESUELTO
@@ -305,7 +338,12 @@
 - **Impacto:** Imposible reconstruir el valor UYU de las ventas en BRL ni auditar el cuadre. Debería
   guardarse `tasa_cambio` por venta.
 
-#### B30 · No se registra quién anuló una venta ni cuándo 🟠
+#### B30 · No se registra quién anuló una venta ni cuándo 🟠 — ✅ RESUELTO (junto con B33)
+> **Update:** `sales.anulada_por`/`anulada_at` se completan en `cancel_sale` (admin) y
+> `cancel_sale_own_turno` (cajero, solo turno abierto). El historial de `/reportes/ventas` muestra
+> quién anuló y cuándo. Sigue sin rol/PIN extra al anular — el control es "solo tu turno abierto"
+> para cajero, sin restricción adicional para admin.
+
 - **Dónde:** [`cancel_sale`](../lib/sql/00-schema-completo.sql#L317) no guarda autor ni timestamp ·
   `sales` sin `anulada_por`/`anulada_at` en [`lib/sql/00-schema-completo.sql`](../lib/sql/00-schema-completo.sql#L57) ·
   botón Anular sin rol/PIN en [`app/reportes/ventas/page.tsx`](../app/reportes/ventas/page.tsx#L263).
@@ -350,7 +388,8 @@ Lo que **más urge** para que funcione en la vida real:
 3. **Velocidad con teclado** (M1, M2, B4/M6) — para la hora pico.
 4. **Red de seguridad** (B8/M5, B5/M7) — prevención de cortes y seguridad.
 
-> **Pasada pre-producción (2026-06-01) — ver B18–B31.** Bloqueantes del primer uso real, por urgencia:
-> el **cuadre cross-moneda** (B23, B24, B25) ✅, el **arqueo real al cierre** (B28) ✅ y el **reintento
-> seguro de venta** (B18) ⏳. De los tres que definen la noche uno, falta solo B18 (idempotencia).
-> Crítico restante sin resolver: **B26** (anular tras el cierre desincroniza el snapshot del turno).
+> **Pasada pre-producción (2026-06-01) — ver B18–B33.** Bloqueantes del primer uso real, por urgencia:
+> el **cuadre cross-moneda** (B23, B24, B25) ✅, el **arqueo real al cierre** (B28) ✅, el **reintento
+> seguro de venta** (B18) ✅, **movimientos de caja entrada/salida** (B32) ✅ y **anulación por cajero
+> + auditoría** (B33, B30) ✅. Crítico restante sin resolver: **B26** (anular tras el cierre
+> desincroniza el snapshot del turno) — es el único 🔴 que queda de esta pasada.

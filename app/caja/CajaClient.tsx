@@ -9,11 +9,12 @@ import {
   openCashSession,
   closeCashSession,
   getClosedSessions,
-  registerCashOutflow,
+  registerCashMovement,
   fetchSessionOutflows,
   type SessionTotals,
 } from "@/lib/services/cashSessions";
-import type { CashSession, CashOutflow } from "@/types";
+import { fetchSalesBySession, cancelSaleOwnTurno } from "@/lib/services/sales";
+import type { CashSession, CashOutflow, Sale } from "@/types";
 
 type PageState = "loading" | "cerrada" | "abierta" | "cerrando";
 
@@ -33,9 +34,11 @@ function fmtDate(iso: string) {
 export default function CajaClient({
   role,
   userId,
+  username,
 }: {
   role: "admin" | "cajero";
   userId: string | null;
+  username: string;
 }) {
   const [pageState, setPageState] = useState<PageState>("loading");
   const [session, setSession] = useState<CashSession | null>(null);
@@ -59,20 +62,31 @@ export default function CajaClient({
   const [showSalidaModal, setShowSalidaModal] = useState(false);
   const [salidaMonto, setSalidaMonto] = useState("");
   const [salidaMoneda, setSalidaMoneda] = useState<"UYU" | "BRL">("UYU");
+  const [salidaTipo, setSalidaTipo] = useState<"entrada" | "salida">("salida");
   const [salidaMotivo, setSalidaMotivo] = useState("");
   const [savingSalida, setSavingSalida] = useState(false);
+
+  const [turnoSales, setTurnoSales] = useState<Sale[]>([]);
+  const [showCancelSaleId, setShowCancelSaleId] = useState<string | null>(null);
+  const [cancelingSaleId, setCancelingSaleId] = useState<string | null>(null);
 
   const loadSession = useCallback(async () => {
     try {
       const s = await getOpenSession();
       setSession(s);
       if (s) {
-        const [t, o] = await Promise.all([getSessionTotals(s.id), fetchSessionOutflows(s.id)]);
+        const [t, o, ventas] = await Promise.all([
+          getSessionTotals(s.id),
+          fetchSessionOutflows(s.id),
+          fetchSalesBySession(s.id),
+        ]);
         setTotals(t);
         setOutflows(o);
+        setTurnoSales(ventas);
         setPageState("abierta");
       } else {
         setOutflows([]);
+        setTurnoSales([]);
         setPageState("cerrada");
       }
       // Cajero only sees their own sessions; admin sees all
@@ -83,6 +97,26 @@ export default function CajaClient({
       setPageState("cerrada");
     }
   }, [role, userId]);
+
+  async function handleCancelSale(saleId: string) {
+    if (!session) return;
+    setCancelingSaleId(saleId);
+    setError(null);
+    try {
+      await cancelSaleOwnTurno(saleId, username);
+      const [t, ventas] = await Promise.all([
+        getSessionTotals(session.id),
+        fetchSalesBySession(session.id),
+      ]);
+      setTotals(t);
+      setTurnoSales(ventas);
+      setShowCancelSaleId(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al anular la venta");
+    } finally {
+      setCancelingSaleId(null);
+    }
+  }
 
   useEffect(() => {
     loadSession();
@@ -116,8 +150,11 @@ export default function CajaClient({
         total_brl_en_uyu: 0,
         total_salidas_uyu: 0,
         total_salidas_brl: 0,
+        total_entradas_uyu: 0,
+        total_entradas_brl: 0,
       });
       setOutflows([]);
+      setTurnoSales([]);
       setPageState("abierta");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al abrir caja");
@@ -138,6 +175,7 @@ export default function CajaClient({
       );
       setSession(null);
       setTotals(null);
+      setTurnoSales([]);
       setCerradoPor("");
       setNotas("");
       setContadoUyu("");
@@ -153,23 +191,24 @@ export default function CajaClient({
     }
   }
 
-  async function handleRegistrarSalida(e: React.FormEvent) {
+  async function handleRegistrarMovimiento(e: React.FormEvent) {
     e.preventDefault();
     if (!session) return;
     const monto = Number(salidaMonto.replace(",", "."));
     setSavingSalida(true);
     setError(null);
     try {
-      await registerCashOutflow(session.id, monto, salidaMoneda, salidaMotivo);
+      await registerCashMovement(session.id, monto, salidaMoneda, salidaTipo, salidaMotivo);
       const [t, o] = await Promise.all([getSessionTotals(session.id), fetchSessionOutflows(session.id)]);
       setTotals(t);
       setOutflows(o);
       setSalidaMonto("");
       setSalidaMotivo("");
       setSalidaMoneda("UYU");
+      setSalidaTipo("salida");
       setShowSalidaModal(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error al registrar la salida");
+      setError(e instanceof Error ? e.message : "Error al registrar el movimiento");
     } finally {
       setSavingSalida(false);
     }
@@ -185,13 +224,16 @@ export default function CajaClient({
     !!totals && Math.abs(descuadreInvariante) > 1 + totals.cantidad_ventas * 0.05;
 
   const esperadoUyu =
-    (session?.monto_inicial ?? 0) + (totals?.total_efectivo_uyu ?? 0) - (totals?.total_salidas_uyu ?? 0);
+    (session?.monto_inicial ?? 0) + (totals?.total_efectivo_uyu ?? 0)
+    + (totals?.total_entradas_uyu ?? 0) - (totals?.total_salidas_uyu ?? 0);
   const esperadoBrl =
-    (session?.monto_inicial_brl ?? 0) + (totals?.total_efectivo_brl ?? 0) - (totals?.total_salidas_brl ?? 0);
+    (session?.monto_inicial_brl ?? 0) + (totals?.total_efectivo_brl ?? 0)
+    + (totals?.total_entradas_brl ?? 0) - (totals?.total_salidas_brl ?? 0);
   const hayMovimientoBrl =
     (session?.monto_inicial_brl ?? 0) > 0 ||
     (totals?.total_efectivo_brl ?? 0) !== 0 ||
-    (totals?.total_salidas_brl ?? 0) !== 0;
+    (totals?.total_salidas_brl ?? 0) !== 0 ||
+    (totals?.total_entradas_brl ?? 0) !== 0;
 
   const contadoUyuNum = contadoUyu.trim() === "" ? null : Math.round(Number(contadoUyu));
   const contadoBrlNum = contadoBrl.trim() === "" ? null : Number(contadoBrl.replace(",", "."));
@@ -368,6 +410,16 @@ export default function CajaClient({
                     </span>
                   </div>
                 )}
+                {(totals.total_entradas_uyu > 0 || totals.total_entradas_brl > 0) && (
+                  <div className="flex justify-between text-[var(--success)]">
+                    <span>Entradas al local</span>
+                    <span>
+                      {totals.total_entradas_uyu > 0 && <>+ $ {fmt(totals.total_entradas_uyu)}</>}
+                      {totals.total_entradas_uyu > 0 && totals.total_entradas_brl > 0 && " · "}
+                      {totals.total_entradas_brl > 0 && <>+ R$ {fmtBRL(totals.total_entradas_brl)}</>}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -375,7 +427,7 @@ export default function CajaClient({
           {outflows.length > 0 && (
             <div className="data-card bg-[var(--carbon-gray)] border border-[var(--slate-gray)] rounded-xl p-4 space-y-2">
               <h2 className="text-xs uppercase tracking-wide text-[var(--text-secondary)] font-semibold">
-                Salidas del turno ({outflows.length})
+                Movimientos del turno ({outflows.length})
               </h2>
               <div className="space-y-1.5 text-sm">
                 {outflows.map((o) => (
@@ -386,9 +438,44 @@ export default function CajaClient({
                         {new Intl.DateTimeFormat("es-UY", { hour: "2-digit", minute: "2-digit" }).format(new Date(o.created_at))}
                       </span>
                     </span>
-                    <span className="font-mono font-semibold text-[var(--error)] shrink-0">
-                      − {o.moneda === "BRL" ? `R$ ${fmtBRL(o.monto)}` : `$ ${fmt(o.monto)}`}
+                    <span className={`font-mono font-semibold shrink-0 ${o.tipo === "entrada" ? "text-[var(--success)]" : "text-[var(--error)]"}`}>
+                      {o.tipo === "entrada" ? "+" : "−"} {o.moneda === "BRL" ? `R$ ${fmtBRL(o.monto)}` : `$ ${fmt(o.monto)}`}
                     </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {turnoSales.length > 0 && (
+            <div className="data-card bg-[var(--carbon-gray)] border border-[var(--slate-gray)] rounded-xl p-4 space-y-2">
+              <h2 className="text-xs uppercase tracking-wide text-[var(--text-secondary)] font-semibold">
+                Ventas de este turno ({turnoSales.length})
+              </h2>
+              <div className="space-y-1.5 text-sm max-h-72 overflow-y-auto">
+                {turnoSales.map((s) => (
+                  <div key={s.id} className="flex items-center justify-between gap-3">
+                    <div className={`truncate ${s.estado === "anulada" ? "opacity-50" : ""}`}>
+                      <span className={s.estado === "anulada" ? "line-through text-[var(--text-secondary)]" : "text-[var(--text-primary)]"}>
+                        {s.moneda === "BRL" ? `R$ ${fmtBRL(s.total)}` : `$ ${fmt(s.total)}`}
+                      </span>
+                      <span className="text-[var(--text-muted)] text-xs ml-2 capitalize">
+                        {s.metodo_pago}
+                      </span>
+                      <span className="text-[var(--text-muted)] text-xs ml-2">
+                        {new Intl.DateTimeFormat("es-UY", { hour: "2-digit", minute: "2-digit" }).format(new Date(s.fecha))}
+                      </span>
+                    </div>
+                    {s.estado === "activa" ? (
+                      <button
+                        onClick={() => setShowCancelSaleId(s.id)}
+                        className="shrink-0 text-xs uppercase tracking-wide px-2 py-1 rounded border border-[var(--error)] text-[var(--error)] hover:bg-[rgba(255,59,59,0.08)] transition-all"
+                      >
+                        Anular
+                      </button>
+                    ) : (
+                      <span className="shrink-0 text-xs text-[var(--error)]">❌ Anulada</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -400,11 +487,12 @@ export default function CajaClient({
               setSalidaMonto("");
               setSalidaMotivo("");
               setSalidaMoneda("UYU");
+              setSalidaTipo("salida");
               setShowSalidaModal(true);
             }}
             className="w-full py-3 rounded-lg font-bold uppercase tracking-wide transition-all border border-[var(--warning)] text-[var(--warning)] hover:bg-[rgba(255,170,0,0.08)]"
           >
-            − Registrar salida
+            ± Movimiento de caja
           </button>
 
           <button
@@ -479,6 +567,16 @@ export default function CajaClient({
                     {totals.total_salidas_uyu > 0 && <>− $ {fmt(totals.total_salidas_uyu)}</>}
                     {totals.total_salidas_uyu > 0 && totals.total_salidas_brl > 0 && " · "}
                     {totals.total_salidas_brl > 0 && <>− R$ {fmtBRL(totals.total_salidas_brl)}</>}
+                  </span>
+                </div>
+              )}
+              {(totals.total_entradas_uyu > 0 || totals.total_entradas_brl > 0) && (
+                <div className="flex justify-between text-[var(--success)]">
+                  <span>Entradas al local</span>
+                  <span>
+                    {totals.total_entradas_uyu > 0 && <>+ $ {fmt(totals.total_entradas_uyu)}</>}
+                    {totals.total_entradas_uyu > 0 && totals.total_entradas_brl > 0 && " · "}
+                    {totals.total_entradas_brl > 0 && <>+ R$ {fmtBRL(totals.total_entradas_brl)}</>}
                   </span>
                 </div>
               )}
@@ -716,6 +814,14 @@ export default function CajaClient({
                         {(s.total_salidas_brl ?? 0) > 0 && <>R$ {fmtBRL(s.total_salidas_brl ?? 0)}</>}
                       </p>
                     )}
+                    {((s.total_entradas_uyu ?? 0) > 0 || (s.total_entradas_brl ?? 0) > 0) && (
+                      <p className="text-[var(--success)] text-xs">
+                        Entradas:{" "}
+                        {(s.total_entradas_uyu ?? 0) > 0 && <>$ {fmt(s.total_entradas_uyu ?? 0)}</>}
+                        {(s.total_entradas_uyu ?? 0) > 0 && (s.total_entradas_brl ?? 0) > 0 && " · "}
+                        {(s.total_entradas_brl ?? 0) > 0 && <>R$ {fmtBRL(s.total_entradas_brl ?? 0)}</>}
+                      </p>
+                    )}
                     <p className="text-[var(--text-secondary)] text-xs">{s.cantidad_ventas ?? 0} ventas</p>
                     {s.diferencia_uyu != null && s.diferencia_uyu !== 0 && (
                       <p className={`text-xs font-semibold ${s.diferencia_uyu > 0 ? "text-[var(--warning)]" : "text-[var(--error)]"}`}>
@@ -739,13 +845,13 @@ export default function CajaClient({
         </div>
       )}
 
-      {/* ──────── MODAL: REGISTRAR SALIDA ──────── */}
+      {/* ──────── MODAL: MOVIMIENTO DE CAJA ──────── */}
       {showSalidaModal && session && (
         <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
           <div className="bg-[var(--deep-dark)] border border-[var(--warning)] rounded-2xl p-6 w-full max-w-sm shadow-2xl space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="font-bold uppercase tracking-wide text-[var(--warning)]">
-                Registrar salida
+                Movimiento de caja
               </h2>
               <button
                 onClick={() => setShowSalidaModal(false)}
@@ -755,10 +861,31 @@ export default function CajaClient({
               </button>
             </div>
             <p className="text-xs text-[var(--text-secondary)]">
-              Plata que sale de la caja durante el turno (proveedor, compra, etc.).
-              Se descuenta del efectivo esperado en el arqueo.
+              Plata que entra o sale de la caja durante el turno (proveedor, compra, devolución,
+              etc.) y no es una venta. Ajusta el efectivo esperado en el arqueo.
             </p>
-            <form onSubmit={handleRegistrarSalida} className="space-y-4">
+            <form onSubmit={handleRegistrarMovimiento} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-sm text-[var(--text-secondary)]">Tipo</label>
+                <div className="flex rounded-lg border border-[var(--slate-gray)] overflow-hidden">
+                  {(["entrada", "salida"] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setSalidaTipo(t)}
+                      className={`flex-1 px-4 py-3 text-sm font-bold uppercase tracking-wide transition-all ${
+                        salidaTipo === t
+                          ? t === "entrada"
+                            ? "bg-[var(--success)] text-[var(--deep-dark)]"
+                            : "bg-[var(--warning)] text-[var(--deep-dark)]"
+                          : "text-[var(--text-secondary)] hover:text-[var(--warning)]"
+                      }`}
+                    >
+                      {t === "entrada" ? "+ Entrada" : "− Salida"}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="flex gap-3">
                 <div className="flex-1 space-y-1.5">
                   <label className="block text-sm text-[var(--text-secondary)]">Monto</label>
@@ -797,7 +924,7 @@ export default function CajaClient({
                   type="text"
                   value={salidaMotivo}
                   onChange={(e) => setSalidaMotivo(e.target.value)}
-                  placeholder="Ej: pago al sodero"
+                  placeholder={salidaTipo === "entrada" ? "Ej: devolución de un préstamo" : "Ej: pago al sodero"}
                   className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--warning)] transition-colors"
                 />
               </div>
@@ -818,6 +945,38 @@ export default function CajaClient({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ──────── MODAL: ANULAR VENTA DEL TURNO ──────── */}
+      {showCancelSaleId && (
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+          <div className="bg-[var(--deep-dark)] border border-[var(--error)] rounded-2xl p-6 w-full max-w-sm shadow-2xl space-y-4">
+            <h2 className="font-bold uppercase tracking-wide text-[var(--error)]">
+              ⚠️ Anular venta
+            </h2>
+            <p className="text-sm text-[var(--text-secondary)]">
+              Se marca la venta como anulada y se devuelve el stock. No se puede deshacer.
+            </p>
+            <div className="flex gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowCancelSaleId(null)}
+                disabled={cancelingSaleId === showCancelSaleId}
+                className="flex-1 py-3 rounded-lg font-bold uppercase tracking-wide border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)] transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCancelSale(showCancelSaleId)}
+                disabled={cancelingSaleId === showCancelSaleId}
+                className="flex-1 py-3 rounded-lg font-bold uppercase tracking-wide transition-all border border-[var(--error)] text-[var(--error)] hover:bg-[rgba(255,59,59,0.08)] disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {cancelingSaleId === showCancelSaleId ? "Anulando..." : "Confirmar anulación"}
+              </button>
+            </div>
           </div>
         </div>
       )}

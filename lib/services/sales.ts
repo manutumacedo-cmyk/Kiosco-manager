@@ -187,17 +187,18 @@ export async function fetchTodaySales(): Promise<Sale[]> {
 
 /**
  * Cancela una venta y devuelve el stock de los productos
- * usando la función RPC atómica cancel_sale
+ * usando la función RPC atómica cancel_sale. Registra quién anuló (B30).
  */
-export async function cancelSale(saleId: string): Promise<void> {
+export async function cancelSale(saleId: string, anuladaPor?: string | null): Promise<void> {
   const { data, error } = await supabase.rpc("cancel_sale", {
     p_sale_id: saleId,
+    p_anulada_por: anuladaPor ?? null,
   });
 
   if (error) {
     // Si la función RPC no existe, usar fallback manual
     if (error.message.includes("function") && error.message.includes("does not exist")) {
-      return cancelSaleFallback(saleId);
+      return cancelSaleFallback(saleId, anuladaPor ?? null);
     }
     throw new Error(error.message);
   }
@@ -207,10 +208,38 @@ export async function cancelSale(saleId: string): Promise<void> {
 }
 
 /**
+ * Cancela una venta como cajero: solo si pertenece al turno actualmente abierto (B33).
+ * La RPC `cancel_sale_own_turno` rechaza ventas de turnos ya cerrados.
+ */
+export async function cancelSaleOwnTurno(saleId: string, anuladaPor: string): Promise<void> {
+  const { error } = await supabase.rpc("cancel_sale_own_turno", {
+    p_sale_id: saleId,
+    p_anulada_por: anuladaPor,
+  });
+
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Ventas (activas y anuladas) de una sesión de caja, más recientes primero.
+ * Usado para que el cajero vea y pueda anular ventas de su turno abierto (B33).
+ */
+export async function fetchSalesBySession(sessionId: string): Promise<Sale[]> {
+  const { data, error } = await supabase
+    .from("sales")
+    .select("id,fecha,metodo_pago,total,nota,moneda,estado,anulada_por,anulada_at,session_id,created_at")
+    .eq("session_id", sessionId)
+    .order("fecha", { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Sale[];
+}
+
+/**
  * Fallback manual para cancelar venta (sin RPC)
  * IMPORTANTE: No es atómico, puede tener race conditions
  */
-async function cancelSaleFallback(saleId: string): Promise<void> {
+async function cancelSaleFallback(saleId: string, anuladaPor: string | null): Promise<void> {
   // 1. Verificar que la venta existe y está activa
   const { data: sale, error: saleError } = await supabase
     .from("sales")
@@ -232,7 +261,7 @@ async function cancelSaleFallback(saleId: string): Promise<void> {
   // 3. Marcar venta como anulada
   const { error: updateError } = await supabase
     .from("sales")
-    .update({ estado: "anulada" })
+    .update({ estado: "anulada", anulada_por: anuladaPor, anulada_at: new Date().toISOString() })
     .eq("id", saleId);
 
   if (updateError) throw new Error(`Error anulando venta: ${updateError.message}`);
@@ -282,6 +311,8 @@ export async function fetchSalesByDateRange(
       nota,
       moneda,
       estado,
+      anulada_por,
+      anulada_at,
       created_at,
       sale_items (
         product_id,
@@ -317,6 +348,8 @@ export async function fetchSalesByDateRange(
     vuelto: sale.vuelto ?? null,
     vuelto_moneda: sale.vuelto_moneda ?? null,
     estado: sale.estado || "activa",
+    anulada_por: sale.anulada_por ?? null,
+    anulada_at: sale.anulada_at ?? null,
     session_id: sale.session_id ?? null,
     created_at: sale.created_at,
     items: sale.sale_items?.map((item: any) => ({

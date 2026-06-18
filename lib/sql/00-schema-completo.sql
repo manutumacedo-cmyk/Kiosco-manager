@@ -55,25 +55,28 @@ CREATE TABLE IF NOT EXISTS cash_sessions (
   -- esperado = fondo inicial + efectivo neto del turno. >0 sobra · <0 falta · 0 cuadra.
   efectivo_contado_uyu NUMERIC(10,2),
   efectivo_contado_brl NUMERIC(10,2),
-  -- Salidas del local durante el turno (snapshot al cierre, ver cash_outflows)
+  -- Movimientos de caja durante el turno (snapshot al cierre, ver cash_outflows). B32.
   total_salidas_uyu   NUMERIC(10,2),
   total_salidas_brl   NUMERIC(10,2),
-  -- esperado = fondo inicial + efectivo neto de ventas − salidas del turno
+  total_entradas_uyu  NUMERIC(10,2),
+  total_entradas_brl  NUMERIC(10,2),
+  -- esperado = fondo inicial + efectivo neto de ventas + entradas − salidas del turno
   diferencia_uyu      NUMERIC(10,2) GENERATED ALWAYS AS (
-                        efectivo_contado_uyu - (monto_inicial + COALESCE(total_efectivo_uyu, 0) - COALESCE(total_salidas_uyu, 0))
+                        efectivo_contado_uyu - (monto_inicial + COALESCE(total_efectivo_uyu, 0) + COALESCE(total_entradas_uyu, 0) - COALESCE(total_salidas_uyu, 0))
                       ) STORED,
   diferencia_brl      NUMERIC(10,2) GENERATED ALWAYS AS (
-                        efectivo_contado_brl - (monto_inicial_brl + COALESCE(total_efectivo_brl, 0) - COALESCE(total_salidas_brl, 0))
+                        efectivo_contado_brl - (monto_inicial_brl + COALESCE(total_efectivo_brl, 0) + COALESCE(total_entradas_brl, 0) - COALESCE(total_salidas_brl, 0))
                       ) STORED,
   created_at          TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
 
--- ---- cash_outflows (salidas de plata del local durante el turno) ---------
+-- ---- cash_outflows (movimientos de plata del local durante el turno: entrada/salida) — B32 ---
 CREATE TABLE IF NOT EXISTS cash_outflows (
   id          UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id  UUID          NOT NULL REFERENCES cash_sessions(id),
   monto       NUMERIC(10,2) NOT NULL CHECK (monto > 0),
   moneda      TEXT          NOT NULL CHECK (moneda IN ('UYU','BRL')),
+  tipo        TEXT          NOT NULL DEFAULT 'salida' CHECK (tipo IN ('entrada','salida')),
   motivo      TEXT          NOT NULL,
   created_at  TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
@@ -109,6 +112,8 @@ CREATE TABLE IF NOT EXISTS sales (
   estado        TEXT NOT NULL DEFAULT 'activa',  -- 'activa' | 'anulada'
   session_id    UUID REFERENCES cash_sessions(id) ON DELETE SET NULL,
   client_request_id UUID,                 -- idempotencia de venta (B18): clave por intento de cobro
+  anulada_por   TEXT,                     -- quién anuló la venta (B30)
+  anulada_at    TIMESTAMPTZ,              -- cuándo se anuló (B30)
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -396,8 +401,9 @@ EXCEPTION WHEN unique_violation THEN
 END;
 $$;
 
--- 4) Cancelar venta y devolver stock (atómico)
-CREATE OR REPLACE FUNCTION cancel_sale(p_sale_id uuid)
+-- 4) Cancelar venta y devolver stock (atómico). p_anulada_por registra autoría (B30).
+DROP FUNCTION IF EXISTS cancel_sale(uuid);
+CREATE OR REPLACE FUNCTION cancel_sale(p_sale_id uuid, p_anulada_por text DEFAULT NULL)
 RETURNS json
 LANGUAGE plpgsql
 AS $$
@@ -413,7 +419,11 @@ BEGIN
     RAISE EXCEPTION 'La venta ya está anulada';
   END IF;
 
-  UPDATE sales SET estado = 'anulada' WHERE id = p_sale_id;
+  UPDATE sales SET
+    estado = 'anulada',
+    anulada_por = p_anulada_por,
+    anulada_at = now()
+  WHERE id = p_sale_id;
 
   -- Devolver stock solo de product_id que existan en products
   UPDATE products p
@@ -424,6 +434,30 @@ BEGIN
   SELECT COUNT(*) INTO v_items_count FROM sale_items WHERE sale_id = p_sale_id;
 
   RETURN json_build_object('success', true, 'sale_id', p_sale_id, 'items_restored', v_items_count);
+END;
+$$;
+
+-- 4b) Cancelar venta como cajero: solo si pertenece al turno ACTUALMENTE abierto (B33).
+-- No permite anular ventas de turnos ya cerrados ni del historial general.
+CREATE OR REPLACE FUNCTION cancel_sale_own_turno(p_sale_id uuid, p_anulada_por text)
+RETURNS json
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_sale_session_id uuid;
+  v_open_session_id uuid;
+BEGIN
+  SELECT session_id INTO v_sale_session_id FROM sales WHERE id = p_sale_id;
+  IF v_sale_session_id IS NULL THEN
+    RAISE EXCEPTION 'Esta venta no pertenece a ningún turno';
+  END IF;
+
+  SELECT id INTO v_open_session_id FROM cash_sessions WHERE estado = 'abierta';
+  IF v_open_session_id IS NULL OR v_open_session_id != v_sale_session_id THEN
+    RAISE EXCEPTION 'Solo se pueden anular ventas del turno actualmente abierto';
+  END IF;
+
+  RETURN cancel_sale(p_sale_id, p_anulada_por);
 END;
 $$;
 
@@ -446,6 +480,8 @@ DECLARE
   v_cantidad         INTEGER;
   v_salidas_uyu      NUMERIC;
   v_salidas_brl      NUMERIC;
+  v_entradas_uyu     NUMERIC;
+  v_entradas_brl     NUMERIC;
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM cash_sessions WHERE id = p_session_id AND estado = 'abierta'
@@ -466,37 +502,42 @@ BEGIN
   FROM sales
   WHERE session_id = p_session_id AND estado = 'activa';
 
-  -- Salidas del turno, por moneda
+  -- Movimientos del turno (entrada/salida, B32), por tipo y moneda
   SELECT
-    COALESCE(SUM(CASE WHEN moneda = 'UYU' THEN monto ELSE 0 END), 0),
-    COALESCE(SUM(CASE WHEN moneda = 'BRL' THEN monto ELSE 0 END), 0)
-  INTO v_salidas_uyu, v_salidas_brl
+    COALESCE(SUM(CASE WHEN moneda = 'UYU' AND tipo = 'salida'  THEN monto ELSE 0 END), 0),
+    COALESCE(SUM(CASE WHEN moneda = 'BRL' AND tipo = 'salida'  THEN monto ELSE 0 END), 0),
+    COALESCE(SUM(CASE WHEN moneda = 'UYU' AND tipo = 'entrada' THEN monto ELSE 0 END), 0),
+    COALESCE(SUM(CASE WHEN moneda = 'BRL' AND tipo = 'entrada' THEN monto ELSE 0 END), 0)
+  INTO v_salidas_uyu, v_salidas_brl, v_entradas_uyu, v_entradas_brl
   FROM cash_outflows
   WHERE session_id = p_session_id;
 
   UPDATE cash_sessions SET
-    estado             = 'cerrada',
-    cerrado_por        = p_cerrado_por,
-    cierre_at          = now(),
-    notas_cierre       = p_notas,
-    total_ventas       = v_total_ventas,
-    total_efectivo_uyu = v_efectivo_uyu,
-    total_efectivo_brl = v_efectivo_brl,
+    estado               = 'cerrada',
+    cerrado_por          = p_cerrado_por,
+    cierre_at            = now(),
+    notas_cierre         = p_notas,
+    total_ventas         = v_total_ventas,
+    total_efectivo_uyu   = v_efectivo_uyu,
+    total_efectivo_brl   = v_efectivo_brl,
     total_digital        = v_digital,
     cantidad_ventas      = v_cantidad,
     efectivo_contado_uyu = p_efectivo_contado_uyu,
     efectivo_contado_brl = p_efectivo_contado_brl,
     total_salidas_uyu    = v_salidas_uyu,
-    total_salidas_brl    = v_salidas_brl
+    total_salidas_brl    = v_salidas_brl,
+    total_entradas_uyu   = v_entradas_uyu,
+    total_entradas_brl   = v_entradas_brl
   WHERE id = p_session_id;
 END;
 $$;
 
--- 5b) Registrar salida de caja (atómica: exige turno abierto, monto > 0 y motivo)
-CREATE OR REPLACE FUNCTION register_cash_outflow(
+-- 5b) Registrar movimiento de caja: entrada o salida (atómica) — B32
+CREATE OR REPLACE FUNCTION register_cash_movement(
   p_session_id UUID,
   p_monto      NUMERIC,
   p_moneda     TEXT,
+  p_tipo       TEXT,
   p_motivo     TEXT
 )
 RETURNS UUID
@@ -511,15 +552,18 @@ BEGIN
   IF trim(coalesce(p_motivo, '')) = '' THEN
     RAISE EXCEPTION 'El motivo es obligatorio';
   END IF;
-
-  -- Lock de la sesión: evita registrar una salida mientras otro la cierra
-  PERFORM 1 FROM cash_sessions WHERE id = p_session_id AND estado = 'abierta' FOR UPDATE;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'No hay turno abierto para registrar la salida';
+  IF lower(coalesce(p_tipo, '')) NOT IN ('entrada', 'salida') THEN
+    RAISE EXCEPTION 'Tipo de movimiento inválido: %', p_tipo;
   END IF;
 
-  INSERT INTO cash_outflows (session_id, monto, moneda, motivo)
-  VALUES (p_session_id, p_monto, upper(p_moneda), trim(p_motivo))
+  -- Lock de la sesión: evita registrar un movimiento mientras otro la cierra
+  PERFORM 1 FROM cash_sessions WHERE id = p_session_id AND estado = 'abierta' FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'No hay turno abierto para registrar el movimiento';
+  END IF;
+
+  INSERT INTO cash_outflows (session_id, monto, moneda, tipo, motivo)
+  VALUES (p_session_id, p_monto, upper(p_moneda), lower(p_tipo), trim(p_motivo))
   RETURNING id INTO v_id;
 
   RETURN v_id;
