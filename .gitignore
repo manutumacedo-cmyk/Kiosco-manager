@@ -43,5 +43,6 @@ next-env.d.ts
 
 # claude code — local settings y artefactos de sesión
 .claude/settings.local.json
+.claude/skills/
 .agents/
 tmp_qa_*
