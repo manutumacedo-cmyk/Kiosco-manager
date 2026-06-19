@@ -54,12 +54,26 @@ export async function createUser(
 }
 
 export async function toggleUserActive(id: string, active: boolean): Promise<void> {
-  const { error } = await supabaseServer.from("users").update({ active }).eq("id", id);
-  if (error) throw new Error(error.message);
+  const { data, error } = await supabaseServer
+    .from("users")
+    .update({ active })
+    .eq("id", id)
+    .select();
+
+  if (error || !data?.length) {
+    throw new Error("Usuario no encontrado o sin cambios");
+  }
 }
 
 export async function resetPassword(id: string, newPassword: string): Promise<void> {
   const password_hash = await bcrypt.hash(newPassword, 12);
-  const { error } = await supabaseServer.from("users").update({ password_hash }).eq("id", id);
-  if (error) throw new Error(error.message);
+  const { data, error } = await supabaseServer
+    .from("users")
+    .update({ password_hash })
+    .eq("id", id)
+    .select();
+
+  if (error || !data?.length) {
+    throw new Error("Usuario no encontrado o reset falló");
+  }
 }
