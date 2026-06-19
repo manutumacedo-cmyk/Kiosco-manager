@@ -2,7 +2,35 @@
   "permissions": {
     "allow": [
       "Bash(npx tsc:*)",
-      "Bash(npx --package=typescript tsc:*)"
+      "Bash(npx --package=typescript tsc:*)",
+      "Skill(gstack-office-hours)",
+      "mcp__claude_ai_Supabase__execute_sql",
+      "Agent(*)",
+      "Bash(npm run *)",
+      "Bash(curl -s http://localhost:3000 -o /dev/null -w \"%{http_code}\")",
+      "Skill(gstack-qa)",
+      "Bash(cat next.config.ts)",
+      "Bash(cat next.config.js)",
+      "Bash(git push *)",
+      "Bash(npx plugins *)",
+      "mcp__plugin_vercel_vercel__list_teams",
+      "mcp__plugin_vercel_vercel__list_projects",
+      "mcp__plugin_vercel_vercel__list_deployments",
+      "mcp__plugin_vercel_vercel__get_project",
+      "mcp__plugin_vercel_vercel__get_deployment",
+      "Skill(gstack-browse)",
+      "Bash(node *)",
+      "Read(//c/Users/Manu Macedo/.claude/projects/C--Users-Manu-Macedo-Kiosco-manager/memory//**)",
+      "Read(//c/Users/Manu Macedo/.claude/projects/C--Users-Manu-Macedo-Kiosco-manager/memory/**)",
+      "Skill(impeccable)",
+      "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 30)",
+      "mcp__claude_ai_Supabase__apply_migration",
+      "mcp__claude_ai_Supabase__get_project_url",
+      "mcp__claude_ai_Supabase__get_publishable_keys",
+      "Bash(curl *)",
+      "Bash(git fetch *)",
+      "Bash(grep -rn \"lib/services/cashRegister\" --include=\"*.ts\" --include=\"*.tsx\" .)",
+      "Bash(grep -rn \"lib/services/strategicInsights\" --include=\"*.ts\" --include=\"*.tsx\" .)"
     ]
   }
 }

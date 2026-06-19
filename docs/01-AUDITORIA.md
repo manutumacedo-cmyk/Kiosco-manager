@@ -62,6 +62,53 @@
   de `products`. El producto Monster se identifica por nombre (match por inclusión, `nombre.includes("monster")`);
   si no se encuentra, se avisa con un toast de advertencia y la venta igual procede (sin descontar stock).
 
+### B5 · La base de datos puede estar expuesta (sin RLS) 🔴 — re-priorizado tras confirmar el riesgo
+> **Update (2026-06-17):** pasada de hardening sobre los advisors de seguridad de Supabase.
+> Se confirmó el riesgo de forma concreta (no teórico): probando contra la API REST con la
+> `anon key` pública, hoy se puede leer **y escribir** `products`, `sales`, `cash_sessions`,
+> `cash_outflows`, etc. directo contra Supabase, sin pasar por la app — incluida la RPC
+> `create_sale_atomic` (o sea, se pueden **forjar ventas o tocar stock/caja desde afuera**).
+> Esto pega directo en la prioridad #2 del proyecto (que la caja cuadre), así que sube a 🔴.
+>
+> **Resuelto en esta pasada** (sin tocar código de la app, solo Supabase):
+> - RLS habilitado + restringido a `service_role` en `users` y `login_attempts` (las únicas
+>   tablas que ya se consultan solo vía `supabaseServer`).
+> - `search_path = public` fijado en las 7 funciones (`decrement_stock`, `increment_stock`,
+>   `cancel_sale`, `update_combo_timestamp`, `create_sale_atomic`, `register_cash_outflow`,
+>   `close_cash_session`).
+> - Vista `combos_with_products` pasada a `SECURITY INVOKER`.
+> - Intento de restringir `cash_outflows` y el resto de las tablas a `service_role` se **revirtió**:
+>   rompía la app en producción (`lib/services/*.ts` usa la `anon key` para casi todo, no solo
+>   `users.ts`). Verificado con `curl` contra la REST API antes y después de revertir.
+>
+> **Pendiente real (no es un fix de SQL, es un refactor):** mover `lib/services/sales.ts`,
+> `products.ts`, `reports.ts`, `restock.ts`, `categories.ts`, `cashSessions.ts`, `combos.ts`,
+> `cashRegister.ts`, `strategicInsights.ts` de `supabaseClient` (anon) a `supabaseServer`
+> (service_role) — chequeando antes si alguno se importa desde un componente `"use client"`
+> (ahí no se puede usar service_role directo, hay que pasar por una API route). Recién ahí se
+> puede cerrar RLS a `service_role`-only en el resto de las tablas sin romper nada.
+>
+> **Decisión (2026-06-17, post /cso): DIFERIDO — riesgo aceptado temporalmente.** El refactor
+> del borde server (Server Actions con `service_role` + verificación de JWT por handler) NO se
+> hace en esta pasada. **Disparador de cierre obligatorio: antes del primer turno real con plata.**
+> Mientras tanto el riesgo es real (cualquiera con la anon key del bundle puede forjar ventas /
+> tocar stock-caja vía REST + `create_sale_atomic`, salteando middleware e idempotencia). Válido
+> solo porque hoy no hay datos reales en producción. Hallazgos del /cso: el borde server debe
+> re-verificar el JWT adentro de cada handler (no confiar en el header `x-user-role`, que el
+> middleware setea en la respuesta y no en el request); `convertBRLtoUYU` es cálculo puro y puede
+> quedar client-side; `cashRegister.ts` y `strategicInsights.ts` son código muerto (cero
+> importadores) → borrarlos saca 2 archivos del alcance.
+
+- **Dónde:** [`lib/supabaseClient.ts`](../lib/supabaseClient.ts) usa la `anon key`, importado desde
+  casi todos los `lib/services/*.ts` (no solo desde el navegador — también desde Server Components
+  y route handlers, pero con la misma key pública igual).
+- **Qué pasa:** El login de la app (middleware + JWT) protege las **rutas de Next**, pero las llamadas
+  a Supabase salen con la `anon key` (que es pública, `NEXT_PUBLIC_*`). Las tablas tienen RLS activo
+  pero con políticas **públicas** (`USING true` / `WITH CHECK true`), así que cualquiera con la URL
+  del proyecto y la anon key (visible en cualquier bundle que la use) puede leer/escribir directo.
+- **Impacto:** Manipulación de datos de venta/caja desde afuera de la app, sin dejar rastro en los
+  flujos que sí tienen idempotencia/validación (B18, B23-B25). Compromete el cuadre de caja.
+
 ---
 
 ## 🟠 PROBLEMAS IMPORTANTES
@@ -78,17 +125,6 @@
   cierra, se cancela → poco fiable de todos modos.
 - **Impacto:** Riesgo de lentitud justo cuando más rápido tiene que ser. Es una feature "linda" que
   pelea contra la prioridad #1 (rápido).
-
-### B5 · La base de datos puede estar expuesta (sin RLS) 🟠
-- **Dónde:** [`lib/supabaseClient.ts`](../lib/supabaseClient.ts) usa la `anon key` **desde el navegador**.
-- **Qué pasa:** El login de la app (middleware + JWT) protege las **rutas de Next**, pero las llamadas
-  a Supabase salen directo del browser con la `anon key` (que es pública). Si las tablas **no tienen
-  Row Level Security (RLS)** bien configurado, cualquiera con la URL del proyecto podría leer/escribir.
-- **Impacto:** Riesgo de seguridad / manipulación de datos.
-- **Estado (Fase 0):** En la base nueva, RLS está **activo** en las 11 tablas pero con políticas
-  **públicas** (`USING true` / `WITH CHECK true`) para que la app funcione con la anon key. Los advisors
-  de Supabase reportan además: `security_definer_view` en `combos_with_products` (conviene `security_invoker=on`)
-  y `function_search_path_mutable` en las 5 funciones (conviene fijar `search_path`). **Todo se endurece en la Fase 4.**
 
 ### B8 · Sin modo offline 🟠
 - **Dónde:** todo el flujo de venta depende de `supabase.rpc(...)` online.
