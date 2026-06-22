@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import type { Sale, SaleItemWithProduct, Product } from "@/types";
-import { fetchTodayReport, fetchWeeklyReport, fetchMonthlyReport, type SaleWithItems, type ComboSaleData } from "@/lib/services/reports";
+import { fetchDiarioReport, fetchSesionesReport, type SaleWithItems, type ComboSaleData } from "@/lib/services/reports";
 import { useToast } from "@/components/ui/Toast";
 
 type TabView = "diario" | "semanal" | "mensual" | "estrategico" | "margen";
@@ -32,9 +32,9 @@ export default function DashboardPage() {
     setLoading(true);
     try {
       const [today, week, month] = await Promise.all([
-        fetchTodayReport(),
-        fetchWeeklyReport(),
-        fetchMonthlyReport(),
+        fetchDiarioReport(),
+        fetchSesionesReport(7),
+        fetchSesionesReport(30),
       ]);
 
       setDailyData({ sales: today.sales, items: today.items, salesWithItems: today.salesWithItems, comboItems: today.comboItems });
