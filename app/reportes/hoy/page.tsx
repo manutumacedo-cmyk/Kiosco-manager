@@ -269,51 +269,117 @@ export default function DashboardPage() {
   // Análisis de horarios
   const horariosPico = useMemo(() => analizarHorarios(monthlyData.sales).slice(0, 3), [monthlyData.sales]);
 
-  // Insights estratégicos
+  // ========== INSIGHTS ESPECIALIZADOS EN EL RUBRO ==========
+  // Kiosco nocturno en la frontera Rivera (UY) / Sant'Ana (BR): cobra en UYU y BRL,
+  // trabaja de noche/madrugada. Los consejos son específicos y cuantificados, no genéricos.
+  // Nota: `total` está en UYU (el POS convierte BRL al guardar). El período es "últimas 30
+  // sesiones" (~1 mes), por eso los ritmos se expresan "al ritmo del último mes".
   const generarInsights = () => {
     const insights: string[] = [];
+    const ventas = monthlyData.sales;
+    if (ventas.length === 0) return insights;
 
-    // Análisis de margen
-    if (metricasMensuales.margenPorcentaje < 30) {
-      insights.push("⚠️ Tu margen de ganancia mensual es bajo (<30%). Considerá revisar costos o aumentar precios.");
-    } else if (metricasMensuales.margenPorcentaje > 50) {
-      insights.push("✅ Excelente margen de ganancia (>50%). Mantené esta estrategia de precios.");
+    const totalRev = metricasMensuales.totalIngresos;
+
+    // 1) Exposición cambiaria: cuánto de la facturación entró en reales (único de la frontera).
+    const brlRev = ventas
+      .filter((s) => s.moneda === "BRL")
+      .reduce((a, s) => a + Number(s.total), 0);
+    const pctBrl = totalRev > 0 ? (brlRev / totalRev) * 100 : 0;
+    if (brlRev > 0 && pctBrl >= 5) {
+      const impacto5 = brlRev * 0.05;
+      insights.push(
+        `💱 El ${pctBrl.toFixed(0)}% de tu facturación entró en reales (${money(brlRev)} de ${money(totalRev)}). ` +
+        `Si el real se mueve 5%, tu resultado en pesos cambia ~${money(impacto5)}. Revisá que la tasa que cargás en el POS siga a la del mercado.`
+      );
     }
 
-    // Análisis de productos
-    if (masRentables.length > 0 && masVendidos.length > 0) {
-      const topRentable = masRentables[0];
-      const topVendido = masVendidos[0];
+    // 2) Patrón nocturno por tramos: dónde se concentra la plata en la noche.
+    const tramos = [
+      { n: "tarde (18–21h)", lo: 18, hi: 21 },
+      { n: "noche (21–00h)", lo: 21, hi: 24 },
+      { n: "madrugada (00–04h)", lo: 0, hi: 4 },
+      { n: "amanecer (04–08h)", lo: 4, hi: 8 },
+    ].map((t) => ({
+      ...t,
+      rev: ventas
+        .filter((s) => {
+          const h = new Date(s.fecha).getHours();
+          return h >= t.lo && h < t.hi;
+        })
+        .reduce((a, s) => a + Number(s.total), 0),
+    }));
+    const tramosConVenta = tramos.filter((t) => t.rev > 0);
+    if (tramosConVenta.length >= 2) {
+      const fuerte = tramosConVenta.reduce((a, b) => (b.rev > a.rev ? b : a));
+      const pctFuerte = totalRev > 0 ? (fuerte.rev / totalRev) * 100 : 0;
+      insights.push(
+        `🌙 Tu franja más fuerte es la ${fuerte.n}: ${money(fuerte.rev)} (${pctFuerte.toFixed(0)}% de la facturación). ` +
+        `Asegurate de tener stock, cambio en ambas monedas y personal cubriendo ese tramo.`
+      );
+    }
 
-      if (topRentable.nombre !== topVendido.nombre) {
-        insights.push(`💡 "${topVendido.nombre}" se vende mucho pero "${topRentable.nombre}" genera más ganancia. Promové productos rentables.`);
+    // 3) Día más fuerte de la semana (concentrá recursos ahí).
+    const DIAS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+    const porDia = new Array(7).fill(0) as number[];
+    ventas.forEach((s) => { porDia[new Date(s.fecha).getDay()] += Number(s.total); });
+    const maxDiaRev = Math.max(...porDia);
+    if (maxDiaRev > 0) {
+      const maxDia = porDia.indexOf(maxDiaRev);
+      const pctDia = totalRev > 0 ? (maxDiaRev / totalRev) * 100 : 0;
+      insights.push(
+        `📅 El ${DIAS[maxDia]} es tu día más fuerte (${pctDia.toFixed(0)}% de la facturación del mes). ` +
+        `Reforzá compra y caja para ese día.`
+      );
+    }
+
+    // 4) Quiebre de stock de tu best-seller (sin reposición de madrugada = venta perdida).
+    const stockPorNombre = new Map(monthlyData.products.map((p) => [p.nombre, p]));
+    const topVendidoProd = masVendidos.find((p) => !p.esCombo);
+    if (topVendidoProd) {
+      const prod = stockPorNombre.get(topVendidoProd.nombre);
+      if (prod && Number(prod.stock) > 0 && topVendidoProd.cantidad > 0) {
+        const ritmoDiario = topVendidoProd.cantidad / 30; // ~30 sesiones ≈ 1 mes
+        const diasCobertura = Number(prod.stock) / ritmoDiario;
+        if (diasCobertura < 5) {
+          insights.push(
+            `📦 "${topVendidoProd.nombre}" es tu más vendido y te quedan ${prod.stock} u. (cobertura ~${diasCobertura.toFixed(1)} días al ritmo del último mes). ` +
+            `Reponé antes de abrir: si se agota de madrugada no hay proveedor y perdés esas ventas.`
+          );
+        }
       }
     }
 
-    // Análisis de horarios
-    if (horariosPico.length > 0) {
-      const [horaPico] = horariosPico[0];
-      insights.push(`⏰ Tu hora pico es a las ${horaPico}:00hs. Asegurate de tener suficiente stock y personal en ese horario.`);
+    // 5) Best-seller vs producto más rentable (mover el foco hacia lo que deja).
+    if (masRentables.length > 0 && masVendidos.length > 0) {
+      const topRentable = masRentables[0];
+      const topVendido = masVendidos[0];
+      if (topRentable.nombre !== topVendido.nombre) {
+        insights.push(
+          `💡 "${topVendido.nombre}" es lo que más sale, pero "${topRentable.nombre}" es lo que más ganancia deja (${money(topRentable.gananciaTotal)} en el mes). ` +
+          `Ponelo a la vista en el mostrador y ofrecelo al cobrar.`
+        );
+      }
     }
 
-    // Productos con bajo margen
-    if (menosRentables.length > 0 && menosRentables[0].margenPorcentaje < 20) {
-      insights.push(`📉 "${menosRentables[0].nombre}" tiene margen muy bajo (<20%). Considerá ajustar precio o costos.`);
-    }
-
-    // Ideas para mejorar ingresos
-    if (metricasMensuales.ventasCount < 50) {
-      insights.push("📈 Pocas ventas este mes. Sugerencia: lanzá promociones 2x1 o descuentos en redes sociales.");
-    }
-
-    if (masVendidos.length > 0) {
-      insights.push(`🎁 Creá un combo con "${masVendidos[0].nombre}" (tu best-seller) + otro producto para aumentar ticket promedio.`);
+    // 6) Margen bajo cuantificado: cuánto ganarías subiéndolo al 25%.
+    const bajo = menosRentables.find((p) => p.margenPorcentaje < 20 && !p.esCombo);
+    if (bajo && bajo.ingresoTotal > 0) {
+      const gananciaActual = bajo.gananciaTotal;
+      const gananciaA25 = bajo.ingresoTotal * 0.25;
+      const delta = gananciaA25 - gananciaActual;
+      if (delta > 0) {
+        insights.push(
+          `📉 "${bajo.nombre}" rinde apenas ${bajo.margenPorcentaje.toFixed(1)}% de margen. ` +
+          `Llevándolo al 25% (subir precio o cambiar proveedor) sumarías ~${money(delta)}/mes a igual volumen.`
+        );
+      }
     }
 
     return insights;
   };
 
-  const insights = useMemo(() => generarInsights(), [metricasMensuales, masRentables, masVendidos, menosRentables, horariosPico]);
+  const insights = useMemo(() => generarInsights(), [monthlyData, metricasMensuales, masRentables, masVendidos, menosRentables]);
 
   // ========== RENDER ==========
   return (
