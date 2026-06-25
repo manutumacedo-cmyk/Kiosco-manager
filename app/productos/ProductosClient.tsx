@@ -327,9 +327,8 @@ export default function ProductosClient({ role }: { role: "admin" | "cajero" }) 
             </div>
           </div>
 
-          {/* Nuevo Producto (solo admin) */}
-          {isAdmin && (
-            <div className="data-card neon-hover-cyan">
+          {/* Nuevo Producto */}
+          <div className="data-card neon-hover-cyan">
               <div className="flex items-center justify-between mb-3">
                 <span className="font-bold text-[var(--neon-cyan)] uppercase tracking-wide">Nuevo Producto</span>
                 <button
@@ -410,7 +409,6 @@ export default function ProductosClient({ role }: { role: "admin" | "cajero" }) 
                 Crear Producto
               </button>
             </div>
-          )}
 
           {/* Tabla */}
           <div className="data-card overflow-hidden p-0">
@@ -471,7 +469,7 @@ export default function ProductosClient({ role }: { role: "admin" | "cajero" }) 
 
                       {/* Categoría */}
                       <td className="p-3">
-                        {editMode && isAdmin ? (
+                        {editMode ? (
                           <select
                             className="cyber-input w-32 text-xs"
                             value={d.categoria ?? ""}
@@ -492,7 +490,7 @@ export default function ProductosClient({ role }: { role: "admin" | "cajero" }) 
 
                       {/* Precio */}
                       <td className="p-3">
-                        {editMode && isAdmin ? (
+                        {editMode ? (
                           <input
                             className="cyber-input w-28 text-sm"
                             type="number"
@@ -571,7 +569,7 @@ export default function ProductosClient({ role }: { role: "admin" | "cajero" }) 
 
                       {/* Mínimo */}
                       <td className="p-3">
-                        {editMode && isAdmin ? (
+                        {editMode ? (
                           <input
                             className="cyber-input w-20 text-center text-sm"
                             type="number"
@@ -596,14 +594,12 @@ export default function ProductosClient({ role }: { role: "admin" | "cajero" }) 
                               {saving[p.id] ? "Guardando..." : "Guardar"}
                             </button>
                             {saved[p.id] && <span className="text-[var(--success)]">✅</span>}
-                            {isAdmin && (
-                              <button
-                                className="px-3 py-1.5 rounded-lg border border-[var(--error)] text-[var(--error)] hover:bg-[var(--error)] hover:text-[var(--dark-bg)] transition-all text-xs"
-                                onClick={() => handleDeleteProduct(p.id, p.nombre)}
-                              >
-                                Eliminar
-                              </button>
-                            )}
+                            <button
+                              className="px-3 py-1.5 rounded-lg border border-[var(--error)] text-[var(--error)] hover:bg-[var(--error)] hover:text-[var(--dark-bg)] transition-all text-xs"
+                              onClick={() => handleDeleteProduct(p.id, p.nombre)}
+                            >
+                              Eliminar
+                            </button>
                           </div>
                         </td>
                       )}

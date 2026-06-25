@@ -5,7 +5,7 @@ import type { UserRole } from "@/lib/services/users";
 const AUTH_COOKIE_NAME = "24siete_auth_token";
 
 // Rutas accesibles solo por admin (páginas y API routes bajo ese prefijo)
-const ADMIN_ONLY_ROUTES = ["/combos", "/reportes", "/historial", "/usuarios", "/api/usuarios"];
+const ADMIN_ONLY_ROUTES = ["/reportes", "/historial", "/usuarios", "/api/usuarios"];
 
 function getSecret(): Uint8Array {
   const secret = process.env.AUTH_SECRET;

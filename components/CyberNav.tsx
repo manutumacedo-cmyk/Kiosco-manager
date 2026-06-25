@@ -32,7 +32,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { href: "/ventas/nueva", label: "Nueva Venta", Icon: CartIcon, accent: "magenta", roles: ["admin", "cajero"] },
   { href: "/productos", label: "Productos", Icon: BoxIcon, accent: "cyan", roles: ["admin", "cajero"] },
-  { href: "/combos", label: "Combos", Icon: ComboIcon, accent: "magenta", roles: ["admin"] },
+  { href: "/combos", label: "Combos", Icon: ComboIcon, accent: "magenta", roles: ["admin", "cajero"] },
   { href: "/reportes/hoy", label: "Reportes", Icon: ChartIcon, accent: "magenta", roles: ["admin"] },
   { href: "/reportes/ventas", label: "Historial", Icon: HistoryIcon, accent: "cyan", roles: ["admin"] },
   { href: "/usuarios", label: "Usuarios", Icon: UsersIcon, accent: "magenta", roles: ["admin"] },
