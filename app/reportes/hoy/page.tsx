@@ -114,8 +114,8 @@ export default function DashboardPage() {
 
   // Datos por período
   const [dailyData, setDailyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; salesWithItems: SaleWithItems[]; comboItems: ComboSaleData[] }>({ sales: [], items: [], salesWithItems: [], comboItems: [] });
-  const [weeklyData, setWeeklyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; products: Product[]; comboItems: ComboSaleData[] }>({ sales: [], items: [], products: [], comboItems: [] });
-  const [monthlyData, setMonthlyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; products: Product[]; comboItems: ComboSaleData[] }>({ sales: [], items: [], products: [], comboItems: [] });
+  const [weeklyData, setWeeklyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; products: Product[]; comboItems: ComboSaleData[]; costoPorVenta: Map<string, number> }>({ sales: [], items: [], products: [], comboItems: [], costoPorVenta: new Map() });
+  const [monthlyData, setMonthlyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; products: Product[]; comboItems: ComboSaleData[]; costoPorVenta: Map<string, number> }>({ sales: [], items: [], products: [], comboItems: [], costoPorVenta: new Map() });
 
   async function loadAllData() {
     setLoading(true);
@@ -127,8 +127,8 @@ export default function DashboardPage() {
       ]);
 
       setDailyData({ sales: today.sales, items: today.items, salesWithItems: today.salesWithItems, comboItems: today.comboItems });
-      setWeeklyData({ sales: week.sales, items: week.items, products: week.products, comboItems: week.comboItems });
-      setMonthlyData({ sales: month.sales, items: month.items, products: month.products, comboItems: month.comboItems });
+      setWeeklyData({ sales: week.sales, items: week.items, products: week.products, comboItems: week.comboItems, costoPorVenta: week.costoPorVenta });
+      setMonthlyData({ sales: month.sales, items: month.items, products: month.products, comboItems: month.comboItems, costoPorVenta: month.costoPorVenta });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al cargar datos");
     } finally {
@@ -314,11 +314,56 @@ export default function DashboardPage() {
     return arr;
   }, [ventasDiarioFiltradas, sortDiario]);
 
-  // Agrupar ventas semanales por día
+  // ========== FILTRO POR MÉTODO — tabs Semanal y Mensual ==========
+  // Mismo ciclo que en Diario, pero acá solo filtra (no hay tabla por ticket
+  // que ordenar): recalcula las tarjetas de ingresos/ganancia/costos.
+  const [metodoFilterSemanal, setMetodoFilterSemanal] = useState<(typeof METODO_FILTER_CYCLE)[number]>("todos");
+  const [metodoFilterMensual, setMetodoFilterMensual] = useState<(typeof METODO_FILTER_CYCLE)[number]>("todos");
+
+  function cycleMetodoFilterSemanal() {
+    setMetodoFilterSemanal((prev) => {
+      const i = METODO_FILTER_CYCLE.indexOf(prev);
+      return METODO_FILTER_CYCLE[(i + 1) % METODO_FILTER_CYCLE.length];
+    });
+  }
+  function cycleMetodoFilterMensual() {
+    setMetodoFilterMensual((prev) => {
+      const i = METODO_FILTER_CYCLE.indexOf(prev);
+      return METODO_FILTER_CYCLE[(i + 1) % METODO_FILTER_CYCLE.length];
+    });
+  }
+
+  const ventasSemanalFiltradas = useMemo(() => {
+    if (metodoFilterSemanal === "todos") return weeklyData.sales;
+    return weeklyData.sales.filter((s) => s.metodo_pago === metodoFilterSemanal);
+  }, [weeklyData.sales, metodoFilterSemanal]);
+
+  const metricasSemanalesFiltradas = useMemo(() => {
+    const totalIngresos = ventasSemanalFiltradas.reduce((a, s) => a + Number(s.total), 0);
+    const totalCostos = ventasSemanalFiltradas.reduce((acc, s) => acc + (weeklyData.costoPorVenta.get(s.id) ?? 0), 0);
+    const gananciaLimpia = totalIngresos - totalCostos;
+    const margenPorcentaje = totalIngresos > 0 ? (gananciaLimpia / totalIngresos) * 100 : 0;
+    return { totalIngresos, totalCostos, gananciaLimpia, margenPorcentaje, ventasCount: ventasSemanalFiltradas.length };
+  }, [ventasSemanalFiltradas, weeklyData.costoPorVenta]);
+
+  const ventasMensualFiltradas = useMemo(() => {
+    if (metodoFilterMensual === "todos") return monthlyData.sales;
+    return monthlyData.sales.filter((s) => s.metodo_pago === metodoFilterMensual);
+  }, [monthlyData.sales, metodoFilterMensual]);
+
+  const metricasMensualesFiltradas = useMemo(() => {
+    const totalIngresos = ventasMensualFiltradas.reduce((a, s) => a + Number(s.total), 0);
+    const totalCostos = ventasMensualFiltradas.reduce((acc, s) => acc + (monthlyData.costoPorVenta.get(s.id) ?? 0), 0);
+    const gananciaLimpia = totalIngresos - totalCostos;
+    const margenPorcentaje = totalIngresos > 0 ? (gananciaLimpia / totalIngresos) * 100 : 0;
+    return { totalIngresos, totalCostos, gananciaLimpia, margenPorcentaje, ventasCount: ventasMensualFiltradas.length };
+  }, [ventasMensualFiltradas, monthlyData.costoPorVenta]);
+
+  // Agrupar ventas semanales por día (respeta el filtro por método)
   const ventasPorDia = useMemo(() => {
     const grupos = new Map<string, { fecha: Date; total: number; cantidad: number }>();
 
-    weeklyData.sales.forEach(sale => {
+    ventasSemanalFiltradas.forEach(sale => {
       const fecha = new Date(sale.fecha);
       const fechaKey = fecha.toISOString().split('T')[0]; // YYYY-MM-DD
 
@@ -338,7 +383,7 @@ export default function DashboardPage() {
     return Array.from(grupos.entries())
       .map(([_, data]) => data)
       .sort((a, b) => b.fecha.getTime() - a.fecha.getTime());
-  }, [weeklyData.sales]);
+  }, [ventasSemanalFiltradas]);
 
   // Análisis de productos (excluye componentes de combos)
   const productosMes = useMemo(() => analizarProductos(monthlyData.items), [monthlyData.items]);
@@ -627,32 +672,44 @@ export default function DashboardPage() {
           {/* REPORTE SEMANAL */}
           {activeTab === "semanal" && (
             <div className="space-y-6">
+              {/* Filtro por método de pago */}
+              <div className="flex justify-end">
+                <button
+                  onClick={cycleMetodoFilterSemanal}
+                  className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wider rounded-lg border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)] transition-colors"
+                >
+                  Método: {metodoFilterSemanal === "todos" ? "Todos" : metodoFilterSemanal}
+                </button>
+              </div>
+
               {/* Totales Semanales */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <MetricCard
                   accent="cyan"
                   label="Ingresos (7 sesiones)"
-                  value={money(metricasSemanales.totalIngresos)}
-                  sub={`${metricasSemanales.ventasCount} ventas`}
+                  value={money(metricasSemanalesFiltradas.totalIngresos)}
+                  sub={`${metricasSemanalesFiltradas.ventasCount} ventas`}
                 />
                 <MetricCard
                   accent="magenta"
                   hero
                   label="Ganancia"
-                  value={money(metricasSemanales.gananciaLimpia)}
-                  sub={`Margen ${metricasSemanales.margenPorcentaje.toFixed(1)}%`}
+                  value={money(metricasSemanalesFiltradas.gananciaLimpia)}
+                  sub={`Margen ${metricasSemanalesFiltradas.margenPorcentaje.toFixed(1)}%`}
                 />
                 <MetricCard
                   accent="neutral"
                   label="Promedio por día"
-                  value={money(metricasSemanales.totalIngresos / 7)}
+                  value={money(metricasSemanalesFiltradas.totalIngresos / 7)}
                 />
               </div>
 
               {/* Tabla Comparativa por Día */}
               <Panel title="Comparativa día por día" accent="magenta">
                 {ventasPorDia.length === 0 ? (
-                  <EmptyState>Sin datos esta semana</EmptyState>
+                  <EmptyState>
+                    {metodoFilterSemanal === "todos" ? "Sin datos esta semana" : `Sin ventas con método "${metodoFilterSemanal}" esta semana`}
+                  </EmptyState>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -669,7 +726,7 @@ export default function DashboardPage() {
                         {ventasPorDia.map((dia, index) => {
                           const diaSemana = dia.fecha.toLocaleDateString('es-AR', { weekday: 'long' });
                           const fechaFormato = dia.fecha.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                          const porcentaje = (dia.total / metricasSemanales.totalIngresos) * 100;
+                          const porcentaje = (dia.total / metricasSemanalesFiltradas.totalIngresos) * 100;
                           const esMejorDia = dia.total === Math.max(...ventasPorDia.map(d => d.total));
 
                           return (
@@ -708,17 +765,32 @@ export default function DashboardPage() {
           {/* REPORTE MENSUAL */}
           {activeTab === "mensual" && (
             <div className="space-y-6">
+              {/* Filtro por método de pago */}
+              <div className="flex justify-end">
+                <button
+                  onClick={cycleMetodoFilterMensual}
+                  className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wider rounded-lg border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)] transition-colors"
+                >
+                  Método: {metodoFilterMensual === "todos" ? "Todos" : metodoFilterMensual}
+                </button>
+              </div>
+
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                <MetricCard accent="cyan" label="Ingresos del mes" value={money(metricasMensuales.totalIngresos)} />
-                <MetricCard accent="magenta" hero label="Ganancia mensual" value={money(metricasMensuales.gananciaLimpia)} />
-                <MetricCard accent="cost" label="Costos del mes" value={money(metricasMensuales.totalCostos)} valueColor="var(--warning)" />
+                <MetricCard accent="cyan" label="Ingresos del mes" value={money(metricasMensualesFiltradas.totalIngresos)} sub={`${metricasMensualesFiltradas.ventasCount} ventas`} />
+                <MetricCard accent="magenta" hero label="Ganancia mensual" value={money(metricasMensualesFiltradas.gananciaLimpia)} />
+                <MetricCard accent="cost" label="Costos del mes" value={money(metricasMensualesFiltradas.totalCostos)} valueColor="var(--warning)" />
                 <MetricCard
                   accent="cyan"
                   label="Margen de ganancia"
-                  value={`${metricasMensuales.margenPorcentaje.toFixed(1)}%`}
-                  valueColor={margenColor(metricasMensuales.margenPorcentaje)}
+                  value={`${metricasMensualesFiltradas.margenPorcentaje.toFixed(1)}%`}
+                  valueColor={margenColor(metricasMensualesFiltradas.margenPorcentaje)}
                 />
               </div>
+              {metodoFilterMensual !== "todos" && (
+                <p className="text-xs text-[var(--text-muted)] -mt-4">
+                  Los productos, combos y horarios de abajo no están filtrados por método (solo las tarjetas de arriba).
+                </p>
+              )}
 
               {/* Top productos del mes */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

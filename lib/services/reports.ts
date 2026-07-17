@@ -32,6 +32,10 @@ export interface PeriodReport {
   items: SaleItemWithProduct[];
   products: Product[];
   comboItems: ComboSaleData[];
+  /** Productos (nombres) agrupados por ticket, para análisis de co-ocurrencia (combos reales). */
+  itemsBySale: Map<string, string[]>;
+  /** Costo total de items por venta (sale_id → costo), para filtrar Ganancia/Costos por método de pago. */
+  costoPorVenta: Map<string, number>;
 }
 
 /**
@@ -46,7 +50,7 @@ async function fetchActiveProducts(): Promise<Product[]> {
   return (data ?? []) as Product[];
 }
 
-type RawSaleItem = { product_id: string; cantidad: number; precio_unitario: number };
+type RawSaleItem = { sale_id: string; product_id: string; cantidad: number; precio_unitario: number };
 
 /**
  * A partir de qué tamaño de lista de ventas dejamos de filtrar por `sale_id IN (...)` y
@@ -74,12 +78,12 @@ async function fetchItemsYCombos(
   const itemsQuery = useJoin
     ? supabase
         .from("sale_items")
-        .select("product_id, cantidad, precio_unitario, sales!inner(session_id, estado)")
+        .select("sale_id, product_id, cantidad, precio_unitario, sales!inner(session_id, estado)")
         .in("sales.session_id", sessionIds)
         .eq("sales.estado", "activa")
     : supabase
         .from("sale_items")
-        .select("product_id, cantidad, precio_unitario")
+        .select("sale_id, product_id, cantidad, precio_unitario")
         .in("sale_id", saleIds);
 
   const combosQuery = useJoin
@@ -194,7 +198,7 @@ export async function fetchSesionesReport(n: 7 | 30): Promise<PeriodReport> {
   const prodMap = new Map(products.map((p) => [p.id, { nombre: p.nombre, costo: p.costo }]));
 
   if (sessionIds.length === 0) {
-    return { sales: [], items: [], products, comboItems: [] };
+    return { sales: [], items: [], products, comboItems: [], itemsBySale: new Map(), costoPorVenta: new Map() };
   }
 
   const salesRes = await supabase
@@ -216,5 +220,17 @@ export async function fetchSesionesReport(n: 7 | 30): Promise<PeriodReport> {
     products: prodMap.get(it.product_id) ?? null,
   }));
 
-  return { sales, items, products, comboItems };
+  const itemsBySale = new Map<string, string[]>();
+  const costoPorVenta = new Map<string, number>();
+  for (const it of rawItems) {
+    const nombre = prodMap.get(it.product_id)?.nombre ?? "?";
+    const nombres = itemsBySale.get(it.sale_id);
+    if (nombres) nombres.push(nombre);
+    else itemsBySale.set(it.sale_id, [nombre]);
+
+    const costo = (prodMap.get(it.product_id)?.costo ?? 0) * Number(it.cantidad || 0);
+    costoPorVenta.set(it.sale_id, (costoPorVenta.get(it.sale_id) ?? 0) + costo);
+  }
+
+  return { sales, items, products, comboItems, itemsBySale, costoPorVenta };
 }
