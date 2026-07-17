@@ -230,6 +230,90 @@ export default function DashboardPage() {
   const metricasSemanales = useMemo(() => calcularMetricas(weeklyData.sales, weeklyData.items), [weeklyData]);
   const metricasMensuales = useMemo(() => calcularMetricas(monthlyData.sales, monthlyData.items), [monthlyData]);
 
+  // ========== TABLA "DETALLE DE VENTAS DEL DÍA" — headers clickeables ==========
+  // Un solo eje de orden compartido entre Hora y Total (como una tabla clásica de
+  // "click header to sort"): Hora alterna entre 2 estados (reciente/antigua), Total
+  // cicla por 3 (mayor→menor, menor→mayor, sin filtro = vuelve al orden por hora).
+  const METODO_FILTER_CYCLE = ["todos", "efectivo", "debito", "credito", "transferencia", "pix"] as const;
+  const ITEMS_ORDER_CYCLE = ["original", "az", "za"] as const;
+
+  const [sortDiario, setSortDiario] = useState<{ column: "hora" | "total"; direction: "asc" | "desc" }>({
+    column: "hora",
+    direction: "desc",
+  });
+  const [metodoFilterDiario, setMetodoFilterDiario] = useState<(typeof METODO_FILTER_CYCLE)[number]>("todos");
+  const [itemsOrderDiario, setItemsOrderDiario] = useState<(typeof ITEMS_ORDER_CYCLE)[number]>("original");
+
+  function toggleSortHora() {
+    setSortDiario((prev) =>
+      prev.column === "hora" ? { column: "hora", direction: prev.direction === "desc" ? "asc" : "desc" } : { column: "hora", direction: "desc" }
+    );
+  }
+  function toggleSortTotal() {
+    setSortDiario((prev) => {
+      if (prev.column !== "total") return { column: "total", direction: "desc" };
+      if (prev.direction === "desc") return { column: "total", direction: "asc" };
+      return { column: "hora", direction: "desc" }; // 3er click: sin filtro, vuelve al orden original
+    });
+  }
+  function cycleMetodoFilter() {
+    setMetodoFilterDiario((prev) => {
+      const i = METODO_FILTER_CYCLE.indexOf(prev);
+      return METODO_FILTER_CYCLE[(i + 1) % METODO_FILTER_CYCLE.length];
+    });
+  }
+  function cycleItemsOrder() {
+    setItemsOrderDiario((prev) => {
+      const i = ITEMS_ORDER_CYCLE.indexOf(prev);
+      return ITEMS_ORDER_CYCLE[(i + 1) % ITEMS_ORDER_CYCLE.length];
+    });
+  }
+
+  // Costo por producto (para recalcular Ganancia/Costos filtrados por método).
+  // dailyData.items no trae sale_id, pero sí product_id + costo — alcanza para
+  // reconstruir el costo de cada sale_item de salesWithItems.
+  const costoPorProducto = useMemo(() => {
+    const map = new Map<string, number>();
+    dailyData.items.forEach((it) => {
+      if (!map.has(it.product_id)) map.set(it.product_id, it.products?.costo ?? 0);
+    });
+    return map;
+  }, [dailyData.items]);
+
+  const ventasDiarioFiltradas = useMemo(() => {
+    if (metodoFilterDiario === "todos") return dailyData.salesWithItems;
+    return dailyData.salesWithItems.filter((s) => s.metodo_pago === metodoFilterDiario);
+  }, [dailyData.salesWithItems, metodoFilterDiario]);
+
+  // Mismo alcance que calcularMetricas (no incluye costo de combos, que no traen
+  // sale_id en este reporte) — solo se agrega el filtro por método.
+  const metricasDiariasFiltradas = useMemo(() => {
+    const totalIngresos = ventasDiarioFiltradas.reduce((a, s) => a + Number(s.total), 0);
+    const totalCostos = ventasDiarioFiltradas.reduce((acc, s) => {
+      const items = s.sale_items || [];
+      return acc + items.reduce((a2, it) => a2 + (costoPorProducto.get(it.product_id) ?? 0) * Number(it.cantidad || 0), 0);
+    }, 0);
+    const gananciaLimpia = totalIngresos - totalCostos;
+    const margenPorcentaje = totalIngresos > 0 ? (gananciaLimpia / totalIngresos) * 100 : 0;
+    return { totalIngresos, totalCostos, gananciaLimpia, margenPorcentaje, ventasCount: ventasDiarioFiltradas.length };
+  }, [ventasDiarioFiltradas, costoPorProducto]);
+
+  const ventasDiarioOrdenadas = useMemo(() => {
+    const arr = [...ventasDiarioFiltradas];
+    if (sortDiario.column === "hora") {
+      arr.sort((a, b) => {
+        const diff = new Date(a.fecha).getTime() - new Date(b.fecha).getTime();
+        return sortDiario.direction === "desc" ? -diff : diff;
+      });
+    } else {
+      arr.sort((a, b) => {
+        const diff = Number(a.total) - Number(b.total);
+        return sortDiario.direction === "desc" ? -diff : diff;
+      });
+    }
+    return arr;
+  }, [ventasDiarioFiltradas, sortDiario]);
+
   // Agrupar ventas semanales por día
   const ventasPorDia = useMemo(() => {
     const grupos = new Map<string, { fecha: Date; total: number; cantidad: number }>();
@@ -439,20 +523,20 @@ export default function DashboardPage() {
                 <MetricCard
                   accent="cyan"
                   label="Ingresos hoy"
-                  value={money(metricasDiarias.totalIngresos)}
-                  sub={`${metricasDiarias.ventasCount} ventas`}
+                  value={money(metricasDiariasFiltradas.totalIngresos)}
+                  sub={`${metricasDiariasFiltradas.ventasCount} ventas${metodoFilterDiario !== "todos" ? ` · ${metodoFilterDiario}` : ""}`}
                 />
                 <MetricCard
                   accent="magenta"
                   hero
                   label="Ganancia limpia"
-                  value={money(metricasDiarias.gananciaLimpia)}
-                  sub={`Margen ${metricasDiarias.margenPorcentaje.toFixed(1)}%`}
+                  value={money(metricasDiariasFiltradas.gananciaLimpia)}
+                  sub={`Margen ${metricasDiariasFiltradas.margenPorcentaje.toFixed(1)}%`}
                 />
                 <MetricCard
                   accent="cost"
                   label="Costos hoy"
-                  value={money(metricasDiarias.totalCostos)}
+                  value={money(metricasDiariasFiltradas.totalCostos)}
                 />
               </div>
 
@@ -466,18 +550,47 @@ export default function DashboardPage() {
                       <thead className="border-b border-[var(--slate-gray)]">
                         <tr>
                           <th className={`${TH} text-left`}>Ticket</th>
-                          <th className={`${TH} text-left`}>Hora</th>
-                          <th className={`${TH} text-left`}>Items</th>
-                          <th className={`${TH} text-left`}>Método</th>
-                          <th className={`${TH} text-right`}>Total</th>
+                          <th className={`${TH} text-left`}>
+                            <button onClick={toggleSortHora} className="flex items-center gap-1 uppercase tracking-wider hover:text-[var(--neon-cyan)] transition-colors">
+                              Hora {sortDiario.column === "hora" ? (sortDiario.direction === "desc" ? "↓" : "↑") : ""}
+                            </button>
+                          </th>
+                          <th className={`${TH} text-left`}>
+                            <button onClick={cycleItemsOrder} className="flex items-center gap-1 uppercase tracking-wider hover:text-[var(--neon-cyan)] transition-colors">
+                              Items {itemsOrderDiario === "az" ? "A-Z" : itemsOrderDiario === "za" ? "Z-A" : ""}
+                            </button>
+                          </th>
+                          <th className={`${TH} text-left`}>
+                            <button onClick={cycleMetodoFilter} className="flex items-center gap-1 uppercase tracking-wider hover:text-[var(--neon-cyan)] transition-colors">
+                              Método {metodoFilterDiario !== "todos" ? `· ${metodoFilterDiario}` : ""}
+                            </button>
+                          </th>
+                          <th className={`${TH} text-right`}>
+                            <button onClick={toggleSortTotal} className="flex items-center gap-1 uppercase tracking-wider hover:text-[var(--neon-cyan)] transition-colors ml-auto">
+                              Total {sortDiario.column === "total" ? (sortDiario.direction === "desc" ? "↓" : "↑") : ""}
+                            </button>
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
-                        {dailyData.salesWithItems.map((sale) => {
+                        {ventasDiarioOrdenadas.length === 0 && (
+                          <tr>
+                            <td colSpan={5} className="p-6 text-center text-[var(--text-muted)] font-mono text-sm">
+                              Sin ventas con método &quot;{metodoFilterDiario}&quot;
+                            </td>
+                          </tr>
+                        )}
+                        {ventasDiarioOrdenadas.map((sale) => {
                           const fecha = new Date(sale.fecha);
                           const hora = fecha.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
                           const items = sale.sale_items || [];
-                          const itemsText = items.map(item =>
+                          const orderedItems =
+                            itemsOrderDiario === "original"
+                              ? items
+                              : [...items].sort((a, b) =>
+                                  itemsOrderDiario === "az" ? a.nombre.localeCompare(b.nombre) : b.nombre.localeCompare(a.nombre)
+                                );
+                          const itemsText = orderedItems.map(item =>
                             `${item.cantidad}x ${item.nombre}`
                           ).join(', ');
 
