@@ -897,7 +897,7 @@ export default function NuevaVentaPage() {
                 <div className="border-t border-[var(--slate-gray)] pt-3">
                   <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide mb-2">Pago digital</div>
                   <div className="grid grid-cols-4 gap-2">
-                    {([["debito", "Débito"], ["credito", "Crédito"], ["transferencia", "Transf."], ["mercadopago", "MP"]] as const).map(([val, label]) => (
+                    {([["debito", "Débito"], ["credito", "Crédito"], ["transferencia", "Transf."], ["pix", "Pix"]] as const).map(([val, label]) => (
                       <button
                         key={val}
                         onClick={() => cobrarDigital(val)}
