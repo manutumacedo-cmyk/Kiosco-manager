@@ -308,6 +308,15 @@ export default function NuevaVentaPage() {
     return paidInUYU - total;
   }, [paidAmount, paidCurrency, total, exchangeRate]);
 
+  // Monto exacto en BRL para "pago justo". Solo es pagable de verdad con
+  // billetes/monedas reales si los centavos son múltiplo de 5 (moneda mínima
+  // en circulación, R$0.05) — si no, el cajero no puede recibir ese monto
+  // exacto y el botón de un toque queda inhabilitado (causa real del
+  // descuadre en reales: se usaba igual con un billete redondo y el vuelto
+  // nunca se registraba).
+  const brlPagoJustoMonto = total / exchangeRate;
+  const brlPagoJustoExacto = Math.round(brlPagoJustoMonto * 100) % 5 === 0;
+
   // Único punto que registra una venta. Recibe el pago EXPLÍCITO (mata B24/B25:
   // no hay default ambiente de moneda; cada venta nace de una acción explícita).
   async function guardarVenta(pago: {
@@ -811,12 +820,15 @@ export default function NuevaVentaPage() {
                   </button>
                   <button
                     onClick={cobrarPagoJustoBRL}
-                    disabled={saving}
-                    className="py-5 rounded-2xl border-2 border-[var(--neon-cyan)] text-[var(--neon-cyan)] font-bold uppercase tracking-wide hover:bg-[var(--neon-cyan)] hover:text-[var(--deep-dark)] active:scale-[0.98] disabled:opacity-50 transition-all"
+                    disabled={saving || !brlPagoJustoExacto}
+                    title={!brlPagoJustoExacto ? "No se puede pagar exacto con billetes/monedas reales — elegí un billete abajo" : undefined}
+                    className="py-5 rounded-2xl border-2 border-[var(--neon-cyan)] text-[var(--neon-cyan)] font-bold uppercase tracking-wide hover:bg-[var(--neon-cyan)] hover:text-[var(--deep-dark)] active:scale-[0.98] disabled:opacity-40 transition-all"
                   >
                     <div className="text-base leading-tight">PAGO JUSTO</div>
-                    <div className="text-xl font-mono mt-0.5">R${(total / exchangeRate).toFixed(2)}</div>
-                    <div className="text-[10px] font-normal opacity-80 mt-0.5">BRL · un toque</div>
+                    <div className="text-xl font-mono mt-0.5">R${brlPagoJustoMonto.toFixed(2)}</div>
+                    <div className="text-[10px] font-normal opacity-80 mt-0.5">
+                      {brlPagoJustoExacto ? "BRL · un toque" : "no hay vuelto exacto ↓"}
+                    </div>
                   </button>
                 </div>
 
