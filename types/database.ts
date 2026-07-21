@@ -70,6 +70,8 @@ export interface CashSession {
   created_at: string;
 }
 
+export type CategoriaSalida = 'restock' | 'proveedor' | 'gasto_personal' | 'otro';
+
 export interface CashOutflow {
   id: string;
   session_id: string;
@@ -77,6 +79,7 @@ export interface CashOutflow {
   moneda: 'UYU' | 'BRL';
   tipo: 'entrada' | 'salida';
   motivo: string;
+  categoria: CategoriaSalida | null; // null para 'entrada'; obligatoria para 'salida'
   created_at: string;
 }
 

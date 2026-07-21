@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabaseClient";
-import type { Sale, SaleItemWithProduct, Product } from "@/types";
-import { getOpenSession, getClosedSessions } from "./cashSessions";
+import type { Sale, SaleItemWithProduct, Product, CategoriaSalida } from "@/types";
+import { getOpenSession, getClosedSessions, fetchOutflowsByCategory, type OutflowCategoryTotal } from "./cashSessions";
 
 export interface SaleWithItems extends Sale {
   sale_items?: Array<{
@@ -25,6 +25,8 @@ export interface TodayReport {
   alertas: Product[];
   salesWithItems: SaleWithItems[];
   comboItems: ComboSaleData[];
+  /** Salidas/entradas de caja del turno, agregadas por categoría (vista cash_outflows_by_category). */
+  outflows: OutflowCategoryTotal[];
 }
 
 export interface PeriodReport {
@@ -36,6 +38,56 @@ export interface PeriodReport {
   itemsBySale: Map<string, string[]>;
   /** Costo total de items por venta (sale_id → costo), para filtrar Ganancia/Costos por método de pago. */
   costoPorVenta: Map<string, number>;
+  /** Salidas/entradas de caja del período, agregadas por categoría (vista cash_outflows_by_category). */
+  outflows: OutflowCategoryTotal[];
+}
+
+/**
+ * "Ganancia real" = ingresos − costo de mercadería − salidas de caja en UYU (restock,
+ * pagos a proveedores, gastos personales, etc.). Las salidas en BRL se informan aparte
+ * SIN netear contra la ganancia en pesos: `cash_outflows` no guarda la tasa de cambio del
+ * momento (a diferencia de `sales`, que sí la tiene por venta), así que convertir
+ * inventaría un tipo de cambio que no se registró — mejor mostrarlo separado que fabricar
+ * un número. Las "entradas" (plata que no es venta, ej. devolución de un préstamo) tampoco
+ * se suman: no son ganancia, son un movimiento de caja informativo aparte.
+ */
+export interface GananciaReal {
+  ingresos: number;
+  costoMercaderia: number;
+  salidasPorCategoria: Record<CategoriaSalida, number>; // en UYU
+  totalSalidasUyu: number;
+  totalSalidasBrl: number; // informativo, no restado (ver nota arriba)
+  gananciaReal: number;
+  margenPorcentaje: number;
+}
+
+export function calcularGananciaReal(
+  ingresos: number,
+  costoMercaderia: number,
+  outflows: OutflowCategoryTotal[]
+): GananciaReal {
+  const salidasPorCategoria: Record<CategoriaSalida, number> = {
+    restock: 0,
+    proveedor: 0,
+    gasto_personal: 0,
+    otro: 0,
+  };
+  let totalSalidasUyu = 0;
+  let totalSalidasBrl = 0;
+
+  for (const o of outflows) {
+    if (o.moneda === "UYU") {
+      salidasPorCategoria[o.categoria] += o.total;
+      totalSalidasUyu += o.total;
+    } else {
+      totalSalidasBrl += o.total;
+    }
+  }
+
+  const gananciaReal = ingresos - costoMercaderia - totalSalidasUyu;
+  const margenPorcentaje = ingresos > 0 ? (gananciaReal / ingresos) * 100 : 0;
+
+  return { ingresos, costoMercaderia, salidasPorCategoria, totalSalidasUyu, totalSalidasBrl, gananciaReal, margenPorcentaje };
 }
 
 /**
@@ -122,10 +174,10 @@ export async function fetchDiarioReport(): Promise<TodayReport> {
   const prodMap = new Map(products.map((p) => [p.id, { nombre: p.nombre, costo: p.costo }]));
 
   if (!session) {
-    return { sales: [], items: [], alertas, salesWithItems: [], comboItems: [] };
+    return { sales: [], items: [], alertas, salesWithItems: [], comboItems: [], outflows: [] };
   }
 
-  const [salesRes, withItemsRes] = await Promise.all([
+  const [salesRes, withItemsRes, outflows] = await Promise.all([
     supabase
       .from("sales")
       .select("id,fecha,metodo_pago,total,nota,moneda,created_at")
@@ -147,6 +199,7 @@ export async function fetchDiarioReport(): Promise<TodayReport> {
       .eq("session_id", session.id)
       .eq("estado", "activa")
       .order("fecha", { ascending: false }),
+    fetchOutflowsByCategory([session.id]),
   ]);
 
   if (salesRes.error) throw new Error(salesRes.error.message);
@@ -174,7 +227,7 @@ export async function fetchDiarioReport(): Promise<TodayReport> {
     })),
   }));
 
-  return { sales, items, alertas, salesWithItems, comboItems };
+  return { sales, items, alertas, salesWithItems, comboItems, outflows };
 }
 
 /**
@@ -198,15 +251,18 @@ export async function fetchSesionesReport(n: 7 | 30): Promise<PeriodReport> {
   const prodMap = new Map(products.map((p) => [p.id, { nombre: p.nombre, costo: p.costo }]));
 
   if (sessionIds.length === 0) {
-    return { sales: [], items: [], products, comboItems: [], itemsBySale: new Map(), costoPorVenta: new Map() };
+    return { sales: [], items: [], products, comboItems: [], itemsBySale: new Map(), costoPorVenta: new Map(), outflows: [] };
   }
 
-  const salesRes = await supabase
-    .from("sales")
-    .select("id,fecha,metodo_pago,total,nota,moneda,created_at")
-    .in("session_id", sessionIds)
-    .eq("estado", "activa")
-    .order("fecha", { ascending: false });
+  const [salesRes, outflows] = await Promise.all([
+    supabase
+      .from("sales")
+      .select("id,fecha,metodo_pago,total,nota,moneda,created_at")
+      .in("session_id", sessionIds)
+      .eq("estado", "activa")
+      .order("fecha", { ascending: false }),
+    fetchOutflowsByCategory(sessionIds),
+  ]);
   if (salesRes.error) throw new Error(salesRes.error.message);
 
   const sales = (salesRes.data ?? []) as Sale[];
@@ -232,5 +288,39 @@ export async function fetchSesionesReport(n: 7 | 30): Promise<PeriodReport> {
     costoPorVenta.set(it.sale_id, (costoPorVenta.get(it.sale_id) ?? 0) + costo);
   }
 
-  return { sales, items, products, comboItems, itemsBySale, costoPorVenta };
+  return { sales, items, products, comboItems, itemsBySale, costoPorVenta, outflows };
+}
+
+/**
+ * Promedio mensual de salidas categoría "restock" en las últimas ~90 sesiones (~3 meses,
+ * ver nota de `fetchSesionesReport` sobre 30 sesiones ≈ 1 mes). Usado para proyectar cuánto
+ * saldría el restock del mes en curso a partir del ritmo histórico — no vincula compras a
+ * productos/cantidades exactas (esa es otra feature, ver restock_purchases sin usar).
+ *
+ * El divisor NO es un 3 fijo: se calcula del rango real de fechas entre la sesión más vieja
+ * y la más nueva del set traído. Con menos de ~90 sesiones de historia (kiosco nuevo, o
+ * turnos poco frecuentes) 90 sesiones pueden cubrir bastante menos de 3 meses calendario —
+ * dividir por 3 igual subestimaría el promedio a la mitad o menos.
+ */
+export async function fetchRestockPromedioMensual(): Promise<number> {
+  const sessionsRes = await supabase
+    .from("cash_sessions")
+    .select("id, apertura_at")
+    .order("apertura_at", { ascending: false })
+    .limit(90);
+  if (sessionsRes.error) throw new Error(sessionsRes.error.message);
+  const sessions = sessionsRes.data ?? [];
+  if (sessions.length === 0) return 0;
+
+  const sessionIds = sessions.map((s) => s.id);
+  const outflows = await fetchOutflowsByCategory(sessionIds);
+  const totalRestockPeriodo = outflows
+    .filter((o) => o.categoria === "restock" && o.moneda === "UYU")
+    .reduce((sum, o) => sum + o.total, 0);
+
+  const fechas = sessions.map((s) => new Date(s.apertura_at).getTime());
+  const rangoDias = (Math.max(...fechas) - Math.min(...fechas)) / (1000 * 60 * 60 * 24);
+  const meses = Math.max(rangoDias / 30, 1); // mínimo 1 mes: evita inflar el promedio con poca historia
+
+  return totalRestockPeriodo / meses;
 }

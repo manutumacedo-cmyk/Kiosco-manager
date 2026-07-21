@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabaseClient";
-import type { CashSession, CashOutflow } from "@/types";
+import type { CashSession, CashOutflow, CategoriaSalida } from "@/types";
 
 export interface SessionTotals {
   total_ventas: number;
@@ -97,13 +97,16 @@ export async function getSessionTotals(sessionId: string): Promise<SessionTotals
 /**
  * Registra un movimiento de plata del local (entrada o salida) via RPC atómica.
  * La función SQL valida turno abierto, monto > 0, tipo y motivo no vacío. B32.
+ * `categoria` es obligatoria para "salida" (la RPC cae a "otro" si no se manda) e
+ * ignorada para "entrada".
  */
 export async function registerCashMovement(
   sessionId: string,
   monto: number,
   moneda: "UYU" | "BRL",
   tipo: "entrada" | "salida",
-  motivo: string
+  motivo: string,
+  categoria?: CategoriaSalida
 ): Promise<void> {
   const { error } = await supabase.rpc("register_cash_movement", {
     p_session_id: sessionId,
@@ -111,9 +114,34 @@ export async function registerCashMovement(
     p_moneda: moneda,
     p_tipo: tipo,
     p_motivo: motivo.trim(),
+    p_categoria: tipo === "salida" ? categoria ?? "otro" : null,
   });
 
   if (error) throw new Error(error.message);
+}
+
+/**
+ * Salidas por categoría, agregadas por sesión (vista `cash_outflows_by_category`), para
+ * un conjunto de sesiones. Usado por reportes para "ganancia real" y proyección de restock.
+ */
+export interface OutflowCategoryTotal {
+  session_id: string;
+  categoria: CategoriaSalida;
+  moneda: "UYU" | "BRL";
+  total: number;
+}
+
+export async function fetchOutflowsByCategory(sessionIds: string[]): Promise<OutflowCategoryTotal[]> {
+  if (sessionIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("cash_outflows_by_category")
+    .select("session_id, categoria, moneda, total")
+    .eq("tipo", "salida")
+    .in("session_id", sessionIds);
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as OutflowCategoryTotal[];
 }
 
 /**

@@ -3,9 +3,24 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Image from "next/image";
-import type { Sale, SaleItemWithProduct, Product } from "@/types";
-import { fetchDiarioReport, fetchSesionesReport, type SaleWithItems, type ComboSaleData } from "@/lib/services/reports";
+import type { Sale, SaleItemWithProduct, Product, CategoriaSalida } from "@/types";
+import {
+  fetchDiarioReport,
+  fetchSesionesReport,
+  fetchRestockPromedioMensual,
+  calcularGananciaReal,
+  type SaleWithItems,
+  type ComboSaleData,
+} from "@/lib/services/reports";
+import type { OutflowCategoryTotal } from "@/lib/services/cashSessions";
 import { useToast } from "@/components/ui/Toast";
+
+const CATEGORIA_LABEL: Record<CategoriaSalida, string> = {
+  restock: "Restock",
+  proveedor: "Proveedor",
+  gasto_personal: "Gasto personal",
+  otro: "Otro",
+};
 
 type TabView = "diario" | "semanal" | "mensual" | "estrategico" | "margen";
 
@@ -107,28 +122,110 @@ function EmptyState({ children }: { children: ReactNode }) {
   return <div className="text-center py-8 text-[var(--text-muted)] font-mono text-sm">{children}</div>;
 }
 
+/** Marcador mnemónico sobrio: punto de color en la paleta de marca, sin emoji decorativo. */
+function Dot({ color, title }: { color: string; title?: string }) {
+  return (
+    <span
+      title={title}
+      className="inline-block w-2 h-2 rounded-full align-middle"
+      style={{ background: color }}
+    />
+  );
+}
+
+/** Desglose de "Ganancia real": Ventas − Costo mercadería − Salidas (por categoría) = Ganancia real.
+ *  Las entradas (plata que no es venta) y las salidas en BRL se muestran aparte, informativas. */
+function GananciaRealBreakdown({
+  ingresos,
+  costoMercaderia,
+  salidasPorCategoria,
+  totalSalidasUyu,
+  totalSalidasBrl,
+  gananciaReal,
+  ocultoPorFiltro,
+}: {
+  ingresos: number;
+  costoMercaderia: number;
+  salidasPorCategoria: Record<CategoriaSalida, number>;
+  totalSalidasUyu: number;
+  totalSalidasBrl: number;
+  gananciaReal: number;
+  /** Nombre del método de pago si las salidas no se muestran por estar filtrando (ej. "pix"). */
+  ocultoPorFiltro?: string;
+}) {
+  const categoriasConSalida = (Object.keys(salidasPorCategoria) as CategoriaSalida[]).filter(
+    (c) => salidasPorCategoria[c] > 0
+  );
+
+  return (
+    <Panel title="Cómo se arma la ganancia real" accent="magenta">
+      <div className="space-y-1.5 font-mono text-sm">
+        <div className="flex justify-between text-[var(--text-secondary)]">
+          <span>Ventas</span>
+          <span>{money(ingresos)}</span>
+        </div>
+        <div className="flex justify-between text-[var(--text-secondary)]">
+          <span>− Costo mercadería</span>
+          <span>−{money(costoMercaderia)}</span>
+        </div>
+        {totalSalidasUyu > 0 ? (
+          <>
+            <div className="flex justify-between font-semibold" style={{ color: "var(--warning)" }}>
+              <span>− Salidas de caja</span>
+              <span>−{money(totalSalidasUyu)}</span>
+            </div>
+            {categoriasConSalida.map((c) => (
+              <div key={c} className="flex justify-between text-xs text-[var(--text-muted)] pl-3">
+                <span>{CATEGORIA_LABEL[c]}</span>
+                <span>−{money(salidasPorCategoria[c])}</span>
+              </div>
+            ))}
+          </>
+        ) : (
+          <div className="flex justify-between text-[var(--text-muted)] text-xs">
+            <span>− Salidas de caja</span>
+            <span>{ocultoPorFiltro ? `no aplica (filtrado por ${ocultoPorFiltro})` : "sin salidas registradas"}</span>
+          </div>
+        )}
+        <div className="flex justify-between border-t border-[var(--slate-gray)] pt-2 mt-1 font-bold text-base" style={{ color: "var(--magenta-core)" }}>
+          <span>= Ganancia real</span>
+          <span>{money(gananciaReal)}</span>
+        </div>
+        {totalSalidasBrl > 0 && (
+          <div className="text-xs text-[var(--text-muted)] pt-1">
+            + Salidas en BRL: R${totalSalidasBrl.toFixed(2)} (no incluidas arriba — sin tasa de cambio registrada por movimiento)
+          </div>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
 export default function DashboardPage() {
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<TabView>("diario");
   const [loading, setLoading] = useState(true);
 
   // Datos por período
-  const [dailyData, setDailyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; salesWithItems: SaleWithItems[]; comboItems: ComboSaleData[] }>({ sales: [], items: [], salesWithItems: [], comboItems: [] });
-  const [weeklyData, setWeeklyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; products: Product[]; comboItems: ComboSaleData[]; costoPorVenta: Map<string, number> }>({ sales: [], items: [], products: [], comboItems: [], costoPorVenta: new Map() });
-  const [monthlyData, setMonthlyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; products: Product[]; comboItems: ComboSaleData[]; costoPorVenta: Map<string, number> }>({ sales: [], items: [], products: [], comboItems: [], costoPorVenta: new Map() });
+  const [dailyData, setDailyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; salesWithItems: SaleWithItems[]; comboItems: ComboSaleData[]; outflows: OutflowCategoryTotal[] }>({ sales: [], items: [], salesWithItems: [], comboItems: [], outflows: [] });
+  const [weeklyData, setWeeklyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; products: Product[]; comboItems: ComboSaleData[]; costoPorVenta: Map<string, number>; outflows: OutflowCategoryTotal[] }>({ sales: [], items: [], products: [], comboItems: [], costoPorVenta: new Map(), outflows: [] });
+  const [monthlyData, setMonthlyData] = useState<{ sales: Sale[]; items: SaleItemWithProduct[]; products: Product[]; comboItems: ComboSaleData[]; costoPorVenta: Map<string, number>; outflows: OutflowCategoryTotal[] }>({ sales: [], items: [], products: [], comboItems: [], costoPorVenta: new Map(), outflows: [] });
+  const [restockPromedioMensual, setRestockPromedioMensual] = useState(0);
 
   async function loadAllData() {
     setLoading(true);
     try {
-      const [today, week, month] = await Promise.all([
+      const [today, week, month, restockPromedio] = await Promise.all([
         fetchDiarioReport(),
         fetchSesionesReport(7),
         fetchSesionesReport(30),
+        fetchRestockPromedioMensual(),
       ]);
 
-      setDailyData({ sales: today.sales, items: today.items, salesWithItems: today.salesWithItems, comboItems: today.comboItems });
-      setWeeklyData({ sales: week.sales, items: week.items, products: week.products, comboItems: week.comboItems, costoPorVenta: week.costoPorVenta });
-      setMonthlyData({ sales: month.sales, items: month.items, products: month.products, comboItems: month.comboItems, costoPorVenta: month.costoPorVenta });
+      setDailyData({ sales: today.sales, items: today.items, salesWithItems: today.salesWithItems, comboItems: today.comboItems, outflows: today.outflows });
+      setWeeklyData({ sales: week.sales, items: week.items, products: week.products, comboItems: week.comboItems, costoPorVenta: week.costoPorVenta, outflows: week.outflows });
+      setMonthlyData({ sales: month.sales, items: month.items, products: month.products, comboItems: month.comboItems, costoPorVenta: month.costoPorVenta, outflows: month.outflows });
+      setRestockPromedioMensual(restockPromedio);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al cargar datos");
     } finally {
@@ -298,6 +395,20 @@ export default function DashboardPage() {
     return { totalIngresos, totalCostos, gananciaLimpia, margenPorcentaje, ventasCount: ventasDiarioFiltradas.length };
   }, [ventasDiarioFiltradas, costoPorProducto]);
 
+  // Ganancia real = ingresos filtrados − costo − salidas de caja. Las salidas son plata física
+  // que sale de la caja entera, no de un método de pago puntual — no tiene sentido prorratearlas
+  // por método. Por eso solo se restan cuando el filtro es "todos"; filtrado por un método
+  // específico (ej. "pix"), restar el total de salidas del período daría un número inventado
+  // (ej. "ganancia real" negativa por Pix aunque las salidas se hayan pagado en efectivo).
+  const gananciaRealDiaria = useMemo(
+    () => calcularGananciaReal(
+      metricasDiariasFiltradas.totalIngresos,
+      metricasDiariasFiltradas.totalCostos,
+      metodoFilterDiario === "todos" ? dailyData.outflows : []
+    ),
+    [metricasDiariasFiltradas, dailyData.outflows, metodoFilterDiario]
+  );
+
   const ventasDiarioOrdenadas = useMemo(() => {
     const arr = [...ventasDiarioFiltradas];
     if (sortDiario.column === "hora") {
@@ -346,6 +457,16 @@ export default function DashboardPage() {
     return { totalIngresos, totalCostos, gananciaLimpia, margenPorcentaje, ventasCount: ventasSemanalFiltradas.length };
   }, [ventasSemanalFiltradas, weeklyData.costoPorVenta]);
 
+  // Mismo criterio que en Diario: las salidas no se prorratean por método de pago.
+  const gananciaRealSemanal = useMemo(
+    () => calcularGananciaReal(
+      metricasSemanalesFiltradas.totalIngresos,
+      metricasSemanalesFiltradas.totalCostos,
+      metodoFilterSemanal === "todos" ? weeklyData.outflows : []
+    ),
+    [metricasSemanalesFiltradas, weeklyData.outflows, metodoFilterSemanal]
+  );
+
   const ventasMensualFiltradas = useMemo(() => {
     if (metodoFilterMensual === "todos") return monthlyData.sales;
     return monthlyData.sales.filter((s) => s.metodo_pago === metodoFilterMensual);
@@ -358,6 +479,22 @@ export default function DashboardPage() {
     const margenPorcentaje = totalIngresos > 0 ? (gananciaLimpia / totalIngresos) * 100 : 0;
     return { totalIngresos, totalCostos, gananciaLimpia, margenPorcentaje, ventasCount: ventasMensualFiltradas.length };
   }, [ventasMensualFiltradas, monthlyData.costoPorVenta]);
+
+  // Mismo criterio que en Diario: las salidas no se prorratean por método de pago.
+  const gananciaRealMensual = useMemo(
+    () => calcularGananciaReal(
+      metricasMensualesFiltradas.totalIngresos,
+      metricasMensualesFiltradas.totalCostos,
+      metodoFilterMensual === "todos" ? monthlyData.outflows : []
+    ),
+    [metricasMensualesFiltradas, monthlyData.outflows, metodoFilterMensual]
+  );
+
+  // Para el tab Margen (no tiene filtro por método, usa el total mensual sin filtrar).
+  const gananciaRealMensualSinFiltro = useMemo(
+    () => calcularGananciaReal(metricasMensuales.totalIngresos, metricasMensuales.totalCostos, monthlyData.outflows),
+    [metricasMensuales, monthlyData.outflows]
+  );
 
   // Agrupar ventas semanales por día (respeta el filtro por método)
   const ventasPorDia = useMemo(() => {
@@ -418,7 +555,7 @@ export default function DashboardPage() {
     if (brlRev > 0 && pctBrl >= 5) {
       const impacto5 = brlRev * 0.05;
       insights.push(
-        `💱 El ${pctBrl.toFixed(0)}% de tu facturación entró en reales (${money(brlRev)} de ${money(totalRev)}). ` +
+        `El ${pctBrl.toFixed(0)}% de tu facturación entró en reales (${money(brlRev)} de ${money(totalRev)}). ` +
         `Si el real se mueve 5%, tu resultado en pesos cambia ~${money(impacto5)}. Revisá que la tasa que cargás en el POS siga a la del mercado.`
       );
     }
@@ -443,7 +580,7 @@ export default function DashboardPage() {
       const fuerte = tramosConVenta.reduce((a, b) => (b.rev > a.rev ? b : a));
       const pctFuerte = totalRev > 0 ? (fuerte.rev / totalRev) * 100 : 0;
       insights.push(
-        `🌙 Tu franja más fuerte es la ${fuerte.n}: ${money(fuerte.rev)} (${pctFuerte.toFixed(0)}% de la facturación). ` +
+        `Tu franja más fuerte es la ${fuerte.n}: ${money(fuerte.rev)} (${pctFuerte.toFixed(0)}% de la facturación). ` +
         `Asegurate de tener stock, cambio en ambas monedas y personal cubriendo ese tramo.`
       );
     }
@@ -457,7 +594,7 @@ export default function DashboardPage() {
       const maxDia = porDia.indexOf(maxDiaRev);
       const pctDia = totalRev > 0 ? (maxDiaRev / totalRev) * 100 : 0;
       insights.push(
-        `📅 El ${DIAS[maxDia]} es tu día más fuerte (${pctDia.toFixed(0)}% de la facturación del mes). ` +
+        `El ${DIAS[maxDia]} es tu día más fuerte (${pctDia.toFixed(0)}% de la facturación del mes). ` +
         `Reforzá compra y caja para ese día.`
       );
     }
@@ -472,7 +609,7 @@ export default function DashboardPage() {
         const diasCobertura = Number(prod.stock) / ritmoDiario;
         if (diasCobertura < 5) {
           insights.push(
-            `📦 "${topVendidoProd.nombre}" es tu más vendido y te quedan ${prod.stock} u. (cobertura ~${diasCobertura.toFixed(1)} días al ritmo del último mes). ` +
+            `"${topVendidoProd.nombre}" es tu más vendido y te quedan ${prod.stock} u. (cobertura ~${diasCobertura.toFixed(1)} días al ritmo del último mes). ` +
             `Reponé antes de abrir: si se agota de madrugada no hay proveedor y perdés esas ventas.`
           );
         }
@@ -485,7 +622,7 @@ export default function DashboardPage() {
       const topVendido = masVendidos[0];
       if (topRentable.nombre !== topVendido.nombre) {
         insights.push(
-          `💡 "${topVendido.nombre}" es lo que más sale, pero "${topRentable.nombre}" es lo que más ganancia deja (${money(topRentable.gananciaTotal)} en el mes). ` +
+          `"${topVendido.nombre}" es lo que más sale, pero "${topRentable.nombre}" es lo que más ganancia deja (${money(topRentable.gananciaTotal)} en el mes). ` +
           `Ponelo a la vista en el mostrador y ofrecelo al cobrar.`
         );
       }
@@ -499,16 +636,28 @@ export default function DashboardPage() {
       const delta = gananciaA25 - gananciaActual;
       if (delta > 0) {
         insights.push(
-          `📉 "${bajo.nombre}" rinde apenas ${bajo.margenPorcentaje.toFixed(1)}% de margen. ` +
+          `"${bajo.nombre}" rinde apenas ${bajo.margenPorcentaje.toFixed(1)}% de margen. ` +
           `Llevándolo al 25% (subir precio o cambiar proveedor) sumarías ~${money(delta)}/mes a igual volumen.`
         );
       }
     }
 
+    // 7) Peso de las salidas de caja sobre la ganancia (lo que "ganancia limpia" ocultaba).
+    const salidasUyu = gananciaRealMensualSinFiltro.totalSalidasUyu;
+    if (salidasUyu > 0 && totalRev > 0) {
+      const pctSalidas = (salidasUyu / totalRev) * 100;
+      const categoriaTop = (Object.entries(gananciaRealMensualSinFiltro.salidasPorCategoria) as [CategoriaSalida, number][])
+        .sort((a, b) => b[1] - a[1])[0];
+      insights.push(
+        `Las salidas de caja del mes suman ${money(salidasUyu)} (${pctSalidas.toFixed(0)}% de la facturación), ` +
+        `la mayor parte en "${CATEGORIA_LABEL[categoriaTop[0]]}" (${money(categoriaTop[1])}). Sin restarlas, la ganancia se ve más alta de lo que realmente es.`
+      );
+    }
+
     return insights;
   };
 
-  const insights = useMemo(() => generarInsights(), [monthlyData, metricasMensuales, masRentables, masVendidos, menosRentables]);
+  const insights = useMemo(() => generarInsights(), [monthlyData, metricasMensuales, masRentables, masVendidos, menosRentables, gananciaRealMensualSinFiltro]);
 
   // ========== RENDER ==========
   return (
@@ -533,11 +682,11 @@ export default function DashboardPage() {
       {/* Tabs de navegación */}
       <div className="flex gap-3 flex-wrap">
         {[
-          { id: "diario" as TabView, label: "Diario", icon: "☀️" },
-          { id: "semanal" as TabView, label: "Semanal", icon: "📅" },
-          { id: "mensual" as TabView, label: "Mensual", icon: "📆" },
-          { id: "margen" as TabView, label: "Margen", icon: "💰" },
-          { id: "estrategico" as TabView, label: "Info Estratégica", icon: "🎯" },
+          { id: "diario" as TabView, label: "Diario", color: "var(--cyan-core)" },
+          { id: "semanal" as TabView, label: "Semanal", color: "var(--magenta-core)" },
+          { id: "mensual" as TabView, label: "Mensual", color: "var(--warning)" },
+          { id: "margen" as TabView, label: "Margen", color: "var(--success)" },
+          { id: "estrategico" as TabView, label: "Info Estratégica", color: "var(--magenta-mid)" },
         ].map(tab => (
           <button
             key={tab.id}
@@ -548,7 +697,7 @@ export default function DashboardPage() {
                 : "border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)] hover:text-[var(--neon-cyan)]"
             }`}
           >
-            <span className="text-lg">{tab.icon}</span>
+            <Dot color={tab.color} />
             <span>{tab.label}</span>
           </button>
         ))}
@@ -574,9 +723,13 @@ export default function DashboardPage() {
                 <MetricCard
                   accent="magenta"
                   hero
-                  label="Ganancia limpia"
-                  value={money(metricasDiariasFiltradas.gananciaLimpia)}
-                  sub={`Margen ${metricasDiariasFiltradas.margenPorcentaje.toFixed(1)}%`}
+                  label="Ganancia real"
+                  value={money(gananciaRealDiaria.gananciaReal)}
+                  sub={
+                    metodoFilterDiario === "todos"
+                      ? `Margen ${gananciaRealDiaria.margenPorcentaje.toFixed(1)}% · resta costo y salidas de caja`
+                      : `Margen ${gananciaRealDiaria.margenPorcentaje.toFixed(1)}% · sin salidas (filtrado por ${metodoFilterDiario})`
+                  }
                 />
                 <MetricCard
                   accent="cost"
@@ -584,6 +737,16 @@ export default function DashboardPage() {
                   value={money(metricasDiariasFiltradas.totalCostos)}
                 />
               </div>
+
+              <GananciaRealBreakdown
+                ingresos={gananciaRealDiaria.ingresos}
+                costoMercaderia={gananciaRealDiaria.costoMercaderia}
+                salidasPorCategoria={gananciaRealDiaria.salidasPorCategoria}
+                totalSalidasUyu={gananciaRealDiaria.totalSalidasUyu}
+                totalSalidasBrl={gananciaRealDiaria.totalSalidasBrl}
+                gananciaReal={gananciaRealDiaria.gananciaReal}
+                ocultoPorFiltro={metodoFilterDiario === "todos" ? undefined : metodoFilterDiario}
+              />
 
               {/* Tabla de Ventas Detallada */}
               <Panel title="Detalle de ventas del día" accent="cyan">
@@ -693,9 +856,13 @@ export default function DashboardPage() {
                 <MetricCard
                   accent="magenta"
                   hero
-                  label="Ganancia"
-                  value={money(metricasSemanalesFiltradas.gananciaLimpia)}
-                  sub={`Margen ${metricasSemanalesFiltradas.margenPorcentaje.toFixed(1)}%`}
+                  label="Ganancia real"
+                  value={money(gananciaRealSemanal.gananciaReal)}
+                  sub={
+                    metodoFilterSemanal === "todos"
+                      ? `Margen ${gananciaRealSemanal.margenPorcentaje.toFixed(1)}% · resta costo y salidas de caja`
+                      : `Margen ${gananciaRealSemanal.margenPorcentaje.toFixed(1)}% · sin salidas (filtrado por ${metodoFilterSemanal})`
+                  }
                 />
                 <MetricCard
                   accent="neutral"
@@ -703,6 +870,16 @@ export default function DashboardPage() {
                   value={money(metricasSemanalesFiltradas.totalIngresos / 7)}
                 />
               </div>
+
+              <GananciaRealBreakdown
+                ingresos={gananciaRealSemanal.ingresos}
+                costoMercaderia={gananciaRealSemanal.costoMercaderia}
+                salidasPorCategoria={gananciaRealSemanal.salidasPorCategoria}
+                totalSalidasUyu={gananciaRealSemanal.totalSalidasUyu}
+                totalSalidasBrl={gananciaRealSemanal.totalSalidasBrl}
+                gananciaReal={gananciaRealSemanal.gananciaReal}
+                ocultoPorFiltro={metodoFilterSemanal === "todos" ? undefined : metodoFilterSemanal}
+              />
 
               {/* Tabla Comparativa por Día */}
               <Panel title="Comparativa día por día" accent="magenta">
@@ -737,7 +914,7 @@ export default function DashboardPage() {
                             >
                               <td className="p-3 text-[var(--text-primary)] font-semibold capitalize" style={esMejorDia ? { borderLeft: "3px solid var(--magenta-core)" } : undefined}>
                                 {diaSemana}
-                                {esMejorDia && <span className="ml-2" title="Mejor día">🏆</span>}
+                                {esMejorDia && <span className="ml-2"><Dot color="var(--magenta-core)" title="Mejor día" /></span>}
                               </td>
                               <td className="p-3 text-[var(--text-secondary)] font-mono tabular-nums">
                                 {fechaFormato}
@@ -777,13 +954,19 @@ export default function DashboardPage() {
 
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
                 <MetricCard accent="cyan" label="Ingresos del mes" value={money(metricasMensualesFiltradas.totalIngresos)} sub={`${metricasMensualesFiltradas.ventasCount} ventas`} />
-                <MetricCard accent="magenta" hero label="Ganancia mensual" value={money(metricasMensualesFiltradas.gananciaLimpia)} />
+                <MetricCard
+                  accent="magenta"
+                  hero
+                  label="Ganancia real"
+                  value={money(gananciaRealMensual.gananciaReal)}
+                  sub={metodoFilterMensual === "todos" ? "Resta costo y salidas de caja" : `Sin salidas (filtrado por ${metodoFilterMensual})`}
+                />
                 <MetricCard accent="cost" label="Costos del mes" value={money(metricasMensualesFiltradas.totalCostos)} valueColor="var(--warning)" />
                 <MetricCard
                   accent="cyan"
-                  label="Margen de ganancia"
-                  value={`${metricasMensualesFiltradas.margenPorcentaje.toFixed(1)}%`}
-                  valueColor={margenColor(metricasMensualesFiltradas.margenPorcentaje)}
+                  label="Margen real"
+                  value={`${gananciaRealMensual.margenPorcentaje.toFixed(1)}%`}
+                  valueColor={margenColor(gananciaRealMensual.margenPorcentaje)}
                 />
               </div>
               {metodoFilterMensual !== "todos" && (
@@ -791,6 +974,37 @@ export default function DashboardPage() {
                   Los productos, combos y horarios de abajo no están filtrados por método (solo las tarjetas de arriba).
                 </p>
               )}
+
+              <GananciaRealBreakdown
+                ingresos={gananciaRealMensual.ingresos}
+                costoMercaderia={gananciaRealMensual.costoMercaderia}
+                salidasPorCategoria={gananciaRealMensual.salidasPorCategoria}
+                totalSalidasUyu={gananciaRealMensual.totalSalidasUyu}
+                totalSalidasBrl={gananciaRealMensual.totalSalidasBrl}
+                gananciaReal={gananciaRealMensual.gananciaReal}
+                ocultoPorFiltro={metodoFilterMensual === "todos" ? undefined : metodoFilterMensual}
+              />
+
+              <Panel title="Proyección de restock" accent="cost">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-[var(--text-muted)] text-xs uppercase tracking-wider">Restock este mes</div>
+                    <div className="text-2xl font-bold mt-1 font-mono tabular-nums" style={{ color: "var(--warning)" }}>
+                      {money(gananciaRealMensual.salidasPorCategoria.restock)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[var(--text-muted)] text-xs uppercase tracking-wider">Promedio mensual (últimos 3 meses)</div>
+                    <div className="text-2xl font-bold mt-1 font-mono tabular-nums" style={{ color: "var(--text-primary)" }}>
+                      {money(restockPromedioMensual)}
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-[var(--text-muted)] mt-3">
+                  Para planificar cuánto vas a necesitar mes a mes en reposición, usá el promedio: es más estable que el
+                  gasto de un solo mes.
+                </p>
+              </Panel>
 
               {/* Top productos del mes */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -950,24 +1164,31 @@ export default function DashboardPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <MetricCard
                   accent="cyan"
-                  label="Margen promedio"
-                  value={`${metricasMensuales.margenPorcentaje.toFixed(1)}%`}
-                  valueColor={margenColor(metricasMensuales.margenPorcentaje)}
-                  sub={metricasMensuales.margenPorcentaje > 40 ? "✅ Excelente" : metricasMensuales.margenPorcentaje > 25 ? "⚠️ Bueno" : "❌ Bajo"}
+                  label="Margen real promedio"
+                  value={`${gananciaRealMensualSinFiltro.margenPorcentaje.toFixed(1)}%`}
+                  valueColor={margenColor(gananciaRealMensualSinFiltro.margenPorcentaje)}
+                  sub={
+                    <span className="inline-flex items-center gap-1.5">
+                      <Dot color={margenColor(gananciaRealMensualSinFiltro.margenPorcentaje)} />
+                      {gananciaRealMensualSinFiltro.margenPorcentaje > 40 ? "Excelente" : gananciaRealMensualSinFiltro.margenPorcentaje > 25 ? "Bueno" : "Bajo"}
+                    </span>
+                  }
                 />
                 <MetricCard
                   accent="magenta"
                   hero
-                  label="Ganancia total (mes)"
-                  value={money(metricasMensuales.gananciaLimpia)}
-                  sub={`Ingresos: ${money(metricasMensuales.totalIngresos)}`}
+                  label="Ganancia real (mes)"
+                  value={money(gananciaRealMensualSinFiltro.gananciaReal)}
+                  sub={`Ingresos: ${money(gananciaRealMensualSinFiltro.ingresos)}`}
                 />
                 <MetricCard
                   accent="cost"
-                  label="Costos totales"
-                  value={money(metricasMensuales.totalCostos)}
+                  label="Costos + salidas totales"
+                  value={money(gananciaRealMensualSinFiltro.costoMercaderia + gananciaRealMensualSinFiltro.totalSalidasUyu)}
                   valueColor="var(--warning)"
-                  sub={metricasMensuales.totalIngresos > 0 ? `${((metricasMensuales.totalCostos / metricasMensuales.totalIngresos) * 100).toFixed(1)}% de ingresos` : undefined}
+                  sub={gananciaRealMensualSinFiltro.ingresos > 0
+                    ? `${(((gananciaRealMensualSinFiltro.costoMercaderia + gananciaRealMensualSinFiltro.totalSalidasUyu) / gananciaRealMensualSinFiltro.ingresos) * 100).toFixed(1)}% de ingresos`
+                    : undefined}
                 />
               </div>
 
@@ -994,12 +1215,6 @@ export default function DashboardPage() {
                       {todosLosMes
                         .sort((a, b) => b.gananciaTotal - a.gananciaTotal)
                         .map((p, i) => {
-                          const margenIcon = p.margenPorcentaje > 40
-                            ? '🟢'
-                            : p.margenPorcentaje > 20
-                            ? '🟡'
-                            : '🔴';
-
                           return (
                             <tr key={i} className={TROW}>
                               <td className="p-3 text-[var(--text-muted)] font-mono tabular-nums">{i + 1}</td>
@@ -1017,7 +1232,9 @@ export default function DashboardPage() {
                               <td className="p-3 text-right font-mono tabular-nums font-bold text-base" style={{ color: margenColor(p.margenPorcentaje) }}>
                                 {p.margenPorcentaje.toFixed(1)}%
                               </td>
-                              <td className="p-3 text-center">{margenIcon}</td>
+                              <td className="p-3 text-center">
+                                <Dot color={margenColor(p.margenPorcentaje)} title={`Margen ${p.margenPorcentaje.toFixed(1)}%`} />
+                              </td>
                             </tr>
                           );
                         })}
@@ -1084,8 +1301,9 @@ export default function DashboardPage() {
                         <div className="text-xs text-[var(--text-muted)] mt-1 font-mono">
                           Ganancia: {money(p.gananciaTotal)} • Vendido: {p.cantidad}
                         </div>
-                        <div className="text-xs mt-1" style={{ color: "var(--warning)" }}>
-                          {p.margenPorcentaje < 15 ? '🔴 Crítico: aumentar precio o cambiar proveedor' : '🟡 Revisar costos'}
+                        <div className="text-xs mt-1 flex items-center gap-1.5" style={{ color: p.margenPorcentaje < 15 ? "var(--error)" : "var(--warning)" }}>
+                          <Dot color={p.margenPorcentaje < 15 ? "var(--error)" : "var(--warning)"} />
+                          {p.margenPorcentaje < 15 ? 'Crítico: aumentar precio o cambiar proveedor' : 'Revisar costos'}
                         </div>
                       </div>
                     ))}

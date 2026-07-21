@@ -71,6 +71,8 @@ CREATE TABLE IF NOT EXISTS cash_sessions (
 );
 
 -- ---- cash_outflows (movimientos de plata del local durante el turno: entrada/salida) — B32 ---
+-- categoria: obligatoria para 'salida' (restock/proveedor/gasto_personal/otro), NULL para
+-- 'entrada' (no aplica categorizar plata que entra). Ver migration_categoria_salidas.sql.
 CREATE TABLE IF NOT EXISTS cash_outflows (
   id          UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id  UUID          NOT NULL REFERENCES cash_sessions(id),
@@ -78,9 +80,21 @@ CREATE TABLE IF NOT EXISTS cash_outflows (
   moneda      TEXT          NOT NULL CHECK (moneda IN ('UYU','BRL')),
   tipo        TEXT          NOT NULL DEFAULT 'salida' CHECK (tipo IN ('entrada','salida')),
   motivo      TEXT          NOT NULL,
-  created_at  TIMESTAMPTZ   NOT NULL DEFAULT now()
+  categoria   TEXT,
+  created_at  TIMESTAMPTZ   NOT NULL DEFAULT now(),
+  CONSTRAINT chk_cash_outflows_categoria CHECK (
+    (tipo = 'salida' AND categoria IN ('restock', 'proveedor', 'gasto_personal', 'otro'))
+    OR (tipo = 'entrada' AND categoria IS NULL)
+  )
 );
 CREATE INDEX IF NOT EXISTS idx_cash_outflows_session ON cash_outflows(session_id);
+
+-- Pre-suma salidas/entradas por sesión + categoría + moneda, para que el dashboard de
+-- reportes no reduzca fila por fila cada movimiento del período (hasta 30 sesiones).
+CREATE OR REPLACE VIEW cash_outflows_by_category AS
+SELECT session_id, tipo, categoria, moneda, SUM(monto) AS total
+FROM cash_outflows
+GROUP BY session_id, tipo, categoria, moneda;
 
 -- ---- sales (cabecera de venta) ------------------------------------------
 CREATE TABLE IF NOT EXISTS sales (
@@ -533,18 +547,21 @@ END;
 $$;
 
 -- 5b) Registrar movimiento de caja: entrada o salida (atómica) — B32
+-- p_categoria: obligatoria (con default 'otro') para salida, ignorada para entrada.
 CREATE OR REPLACE FUNCTION register_cash_movement(
   p_session_id UUID,
   p_monto      NUMERIC,
   p_moneda     TEXT,
   p_tipo       TEXT,
-  p_motivo     TEXT
+  p_motivo     TEXT,
+  p_categoria  TEXT DEFAULT NULL
 )
 RETURNS UUID
 LANGUAGE plpgsql
 AS $$
 DECLARE
   v_id UUID;
+  v_categoria TEXT;
 BEGIN
   IF p_monto IS NULL OR p_monto <= 0 THEN
     RAISE EXCEPTION 'El monto debe ser mayor a cero';
@@ -556,14 +573,23 @@ BEGIN
     RAISE EXCEPTION 'Tipo de movimiento inválido: %', p_tipo;
   END IF;
 
+  IF lower(p_tipo) = 'salida' THEN
+    v_categoria := lower(coalesce(p_categoria, 'otro'));
+    IF v_categoria NOT IN ('restock', 'proveedor', 'gasto_personal', 'otro') THEN
+      RAISE EXCEPTION 'Categoría de salida inválida: %', p_categoria;
+    END IF;
+  ELSE
+    v_categoria := NULL;
+  END IF;
+
   -- Lock de la sesión: evita registrar un movimiento mientras otro la cierra
   PERFORM 1 FROM cash_sessions WHERE id = p_session_id AND estado = 'abierta' FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'No hay turno abierto para registrar el movimiento';
   END IF;
 
-  INSERT INTO cash_outflows (session_id, monto, moneda, tipo, motivo)
-  VALUES (p_session_id, p_monto, upper(p_moneda), lower(p_tipo), trim(p_motivo))
+  INSERT INTO cash_outflows (session_id, monto, moneda, tipo, motivo, categoria)
+  VALUES (p_session_id, p_monto, upper(p_moneda), lower(p_tipo), trim(p_motivo), v_categoria)
   RETURNING id INTO v_id;
 
   RETURN v_id;
