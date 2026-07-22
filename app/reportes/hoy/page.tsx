@@ -7,7 +7,7 @@ import type { Sale, SaleItemWithProduct, Product } from "@/types";
 import {
   fetchDiarioReport,
   fetchSesionesReport,
-  fetchRestockPromedioMensual,
+  fetchPromediosPorCategoria,
   calcularGananciaReal,
   type SaleWithItems,
   type ComboSaleData,
@@ -43,17 +43,17 @@ export default function DashboardPage() {
   async function loadAllData() {
     setLoading(true);
     try {
-      const [today, week, month, restockPromedio] = await Promise.all([
+      const [today, week, month, promedios] = await Promise.all([
         fetchDiarioReport(),
         fetchSesionesReport(7),
         fetchSesionesReport(30),
-        fetchRestockPromedioMensual(),
+        fetchPromediosPorCategoria(),
       ]);
 
       setDailyData({ sales: today.sales, items: today.items, salesWithItems: today.salesWithItems, comboItems: today.comboItems, outflows: today.outflows });
       setWeeklyData({ sales: week.sales, items: week.items, products: week.products, comboItems: week.comboItems, costoPorVenta: week.costoPorVenta, outflows: week.outflows });
       setMonthlyData({ sales: month.sales, items: month.items, products: month.products, comboItems: month.comboItems, costoPorVenta: month.costoPorVenta, outflows: month.outflows });
-      setRestockPromedioMensual(restockPromedio);
+      setRestockPromedioMensual(promedios.restock);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al cargar datos");
     } finally {

@@ -12,6 +12,7 @@ import {
   ComboIcon,
   ChartIcon,
   HistoryIcon,
+  CashFlowIcon,
   UsersIcon,
   LogoutIcon,
 } from "./Icons";
@@ -35,6 +36,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/combos", label: "Combos", Icon: ComboIcon, accent: "magenta", roles: ["admin", "cajero"] },
   { href: "/reportes/hoy", label: "Reportes", Icon: ChartIcon, accent: "magenta", roles: ["admin"] },
   { href: "/reportes/ventas", label: "Historial", Icon: HistoryIcon, accent: "cyan", roles: ["admin"] },
+  { href: "/reportes/movimientos", label: "Movimientos", Icon: CashFlowIcon, accent: "magenta", roles: ["admin"] },
   { href: "/usuarios", label: "Usuarios", Icon: UsersIcon, accent: "magenta", roles: ["admin"] },
 ];
 

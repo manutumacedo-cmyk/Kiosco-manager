@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS cash_outflows (
   categoria   TEXT,
   created_at  TIMESTAMPTZ   NOT NULL DEFAULT now(),
   CONSTRAINT chk_cash_outflows_categoria CHECK (
-    (tipo = 'salida' AND categoria IN ('restock', 'proveedor', 'gasto_personal', 'otro'))
+    (tipo = 'salida' AND categoria IN ('restock', 'proveedor', 'gasto_personal', 'funcionario', 'otro'))
     OR (tipo = 'entrada' AND categoria IS NULL)
   )
 );
@@ -575,7 +575,7 @@ BEGIN
 
   IF lower(p_tipo) = 'salida' THEN
     v_categoria := lower(coalesce(p_categoria, 'otro'));
-    IF v_categoria NOT IN ('restock', 'proveedor', 'gasto_personal', 'otro') THEN
+    IF v_categoria NOT IN ('restock', 'proveedor', 'gasto_personal', 'funcionario', 'otro') THEN
       RAISE EXCEPTION 'Categoría de salida inválida: %', p_categoria;
     END IF;
   ELSE

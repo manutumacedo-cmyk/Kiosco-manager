@@ -19,6 +19,7 @@ import type { CashSession, CashOutflow, Sale, CategoriaSalida } from "@/types";
 const CATEGORIAS_SALIDA: { id: CategoriaSalida; label: string }[] = [
   { id: "restock", label: "Restock" },
   { id: "proveedor", label: "Proveedor" },
+  { id: "funcionario", label: "Funcionario" },
   { id: "gasto_personal", label: "Gasto personal" },
   { id: "otro", label: "Otro" },
 ];

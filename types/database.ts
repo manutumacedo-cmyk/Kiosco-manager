@@ -70,7 +70,7 @@ export interface CashSession {
   created_at: string;
 }
 
-export type CategoriaSalida = 'restock' | 'proveedor' | 'gasto_personal' | 'otro';
+export type CategoriaSalida = 'restock' | 'proveedor' | 'gasto_personal' | 'funcionario' | 'otro';
 
 export interface CashOutflow {
   id: string;

@@ -70,6 +70,7 @@ export function calcularGananciaReal(
     restock: 0,
     proveedor: 0,
     gasto_personal: 0,
+    funcionario: 0,
     otro: 0,
   };
   let totalSalidasUyu = 0;
@@ -292,9 +293,10 @@ export async function fetchSesionesReport(n: 7 | 30): Promise<PeriodReport> {
 }
 
 /**
- * Promedio mensual de salidas categoría "restock" en las últimas ~90 sesiones (~3 meses,
- * ver nota de `fetchSesionesReport` sobre 30 sesiones ≈ 1 mes). Usado para proyectar cuánto
- * saldría el restock del mes en curso a partir del ritmo histórico — no vincula compras a
+ * Promedio mensual de salidas por categoría, en las últimas ~90 sesiones (~3 meses, ver
+ * nota de `fetchSesionesReport` sobre 30 sesiones ≈ 1 mes). Es un "burn rate" bruto por
+ * categoría (gasto mensual promedio, sin descontar ingresos) — sirve para proyectar cuánto
+ * sale cada categoría mes a mes a partir del ritmo histórico, no vincula compras a
  * productos/cantidades exactas (esa es otra feature, ver restock_purchases sin usar).
  *
  * El divisor NO es un 3 fijo: se calcula del rango real de fechas entre la sesión más vieja
@@ -302,7 +304,15 @@ export async function fetchSesionesReport(n: 7 | 30): Promise<PeriodReport> {
  * turnos poco frecuentes) 90 sesiones pueden cubrir bastante menos de 3 meses calendario —
  * dividir por 3 igual subestimaría el promedio a la mitad o menos.
  */
-export async function fetchRestockPromedioMensual(): Promise<number> {
+export async function fetchPromediosPorCategoria(): Promise<Record<CategoriaSalida, number>> {
+  const vacio: Record<CategoriaSalida, number> = {
+    restock: 0,
+    proveedor: 0,
+    gasto_personal: 0,
+    funcionario: 0,
+    otro: 0,
+  };
+
   const sessionsRes = await supabase
     .from("cash_sessions")
     .select("id, apertura_at")
@@ -310,17 +320,43 @@ export async function fetchRestockPromedioMensual(): Promise<number> {
     .limit(90);
   if (sessionsRes.error) throw new Error(sessionsRes.error.message);
   const sessions = sessionsRes.data ?? [];
-  if (sessions.length === 0) return 0;
+  if (sessions.length === 0) return vacio;
 
   const sessionIds = sessions.map((s) => s.id);
   const outflows = await fetchOutflowsByCategory(sessionIds);
-  const totalRestockPeriodo = outflows
-    .filter((o) => o.categoria === "restock" && o.moneda === "UYU")
-    .reduce((sum, o) => sum + o.total, 0);
 
   const fechas = sessions.map((s) => new Date(s.apertura_at).getTime());
   const rangoDias = (Math.max(...fechas) - Math.min(...fechas)) / (1000 * 60 * 60 * 24);
   const meses = Math.max(rangoDias / 30, 1); // mínimo 1 mes: evita inflar el promedio con poca historia
 
-  return totalRestockPeriodo / meses;
+  const totales = { ...vacio };
+  for (const o of outflows) {
+    if (o.moneda === "UYU" && o.categoria) {
+      totales[o.categoria] += o.total;
+    }
+  }
+
+  const promedios = { ...vacio };
+  for (const c of Object.keys(totales) as CategoriaSalida[]) {
+    promedios[c] = totales[c] / meses;
+  }
+  return promedios;
+}
+
+/**
+ * Total facturado (ventas activas) en un rango de fechas — para el "Operating Expense
+ * Ratio" (salidas del período / ingresos del período) en la página de Movimientos. Usa
+ * `fecha` de la venta, no `created_at`, para alinear con cómo se filtra el resto del
+ * reporte de ventas.
+ */
+export async function fetchIngresosPeriodo(desde: string, hasta: string): Promise<number> {
+  const { data, error } = await supabase
+    .from("sales")
+    .select("total")
+    .eq("estado", "activa")
+    .gte("fecha", desde)
+    .lte("fecha", hasta);
+
+  if (error) throw new Error(error.message);
+  return (data ?? []).reduce((sum, s) => sum + Number(s.total || 0), 0);
 }

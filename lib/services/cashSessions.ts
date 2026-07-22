@@ -158,6 +158,41 @@ export async function fetchSessionOutflows(sessionId: string): Promise<CashOutfl
   return (data ?? []) as CashOutflow[];
 }
 
+export interface MovimientoDetallado extends CashOutflow {
+  cajero: string;
+  apertura_turno: string;
+}
+
+/**
+ * Movimientos (entradas y salidas) de TODOS los turnos en un rango de fechas, con el
+ * cajero y la apertura del turno que los generó (join contra cash_sessions, ya que
+ * cash_outflows no tiene columna cajero propia). Para la página de historial completo
+ * ("Movimientos"), no para el turno activo (ver fetchSessionOutflows).
+ */
+export async function fetchMovimientosDetallados(desde: string, hasta: string): Promise<MovimientoDetallado[]> {
+  const { data, error } = await supabase
+    .from("cash_outflows")
+    .select("*, cash_sessions(cajero, apertura_at)")
+    .gte("created_at", desde)
+    .lte("created_at", hasta)
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(error.message);
+
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    session_id: row.session_id,
+    monto: row.monto,
+    moneda: row.moneda,
+    tipo: row.tipo,
+    motivo: row.motivo,
+    categoria: row.categoria,
+    created_at: row.created_at,
+    cajero: row.cash_sessions?.cajero ?? "Desconocido",
+    apertura_turno: row.cash_sessions?.apertura_at ?? row.created_at,
+  }));
+}
+
 /**
  * Abre una nueva sesión de caja.
  * Lanza error si ya hay una sesión abierta (enforced por idx_one_open_session).
