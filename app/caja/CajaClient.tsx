@@ -53,12 +53,10 @@ export default function CajaClient({
   const [totals, setTotals] = useState<SessionTotals | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [cajero, setCajero] = useState("");
   const [montoInicial, setMontoInicial] = useState("");
   const [montoInicialBrl, setMontoInicialBrl] = useState("");
   const [opening, setOpening] = useState(false);
 
-  const [cerradoPor, setCerradoPor] = useState("");
   const [notas, setNotas] = useState("");
   const [contadoUyu, setContadoUyu] = useState("");
   const [contadoBrl, setContadoBrl] = useState("");
@@ -152,7 +150,7 @@ export default function CajaClient({
     setOpening(true);
     setError(null);
     try {
-      const s = await openCashSession(cajero, parseFloat(montoInicial), parseFloat(montoInicialBrl) || 0);
+      const s = await openCashSession(username, parseFloat(montoInicial), parseFloat(montoInicialBrl) || 0, userId);
       setSession(s);
       setTotals({
         total_ventas: 0,
@@ -183,13 +181,12 @@ export default function CajaClient({
     setError(null);
     try {
       await closeCashSession(
-        session.id, cerradoPor, notas || null,
-        contadoUyuNum, hayMovimientoBrl ? contadoBrlNum : null
+        session.id, username, notas || null,
+        contadoUyuNum, hayMovimientoBrl ? contadoBrlNum : null, userId
       );
       setSession(null);
       setTotals(null);
       setTurnoSales([]);
-      setCerradoPor("");
       setNotas("");
       setContadoUyu("");
       setContadoBrl("");
@@ -278,7 +275,7 @@ export default function CajaClient({
 
   const faltaContado = contadoUyu.trim() === "" || (hayMovimientoBrl && contadoBrl.trim() === "");
   const faltaNotaPorDescuadre = arqueoDescuadra && !notas.trim();
-  const cierreBloqueado = closing || !cerradoPor.trim() || faltaContado || faltaNotaPorDescuadre;
+  const cierreBloqueado = closing || faltaContado || faltaNotaPorDescuadre;
 
   if (pageState === "loading") {
     return (
@@ -320,15 +317,13 @@ export default function CajaClient({
               <label className="block text-sm uppercase tracking-wide text-[var(--text-secondary)]">
                 Cajero
               </label>
-              <input
-                type="text"
-                value={cajero}
-                onChange={(e) => setCajero(e.target.value)}
-                placeholder="Nombre del cajero"
-                required
-                autoFocus
-                className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors"
-              />
+              {/* Fijo a la cuenta logueada (verificada por JWT) — no es editable: antes
+                  cualquiera podía escribir cualquier nombre acá, sin quedar registro real
+                  de quién abrió la caja. */}
+              <div className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] flex items-center justify-between">
+                <span className="font-semibold">{username}</span>
+                <span className="text-xs text-[var(--text-muted)] uppercase">Tu cuenta</span>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -341,6 +336,7 @@ export default function CajaClient({
                   onChange={(e) => setMontoInicial(e.target.value)}
                   placeholder="0.00"
                   required
+                  autoFocus
                   min="0"
                   step="0.01"
                   className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors"
@@ -363,7 +359,7 @@ export default function CajaClient({
             </div>
             <button
               type="submit"
-              disabled={opening || !cajero.trim() || !montoInicial}
+              disabled={opening || !montoInicial}
               className="w-full py-3 rounded-lg font-bold uppercase tracking-wide transition-all neon-outline-cyan neon-text-cyan hover:bg-[var(--neon-cyan)]/10 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {opening ? "Abriendo..." : "Abrir turno"}
@@ -534,7 +530,6 @@ export default function CajaClient({
 
           <button
             onClick={() => {
-              setCerradoPor(session.cajero);
               setContadoUyu("");
               setContadoBrl("");
               setArqueoConfirmado(false);
@@ -747,14 +742,18 @@ export default function CajaClient({
                   <label className="block text-sm uppercase tracking-wide text-[var(--text-secondary)]">
                     Cerrado por
                   </label>
-                  <input
-                    type="text"
-                    value={cerradoPor}
-                    onChange={(e) => setCerradoPor(e.target.value)}
-                    placeholder="Nombre de quien cierra"
-                    required
-                    className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors"
-                  />
+                  {/* Fijo a la cuenta logueada, igual que en apertura — puede ser distinta
+                      de quien abrió el turno (se entrega a otro cajero), pero siempre la
+                      cuenta real de quien está cerrando ahora, no texto libre. */}
+                  <div className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] flex items-center justify-between">
+                    <span className="font-semibold">{username}</span>
+                    <span className="text-xs text-[var(--text-muted)] uppercase">Tu cuenta</span>
+                  </div>
+                  {session.cajero !== username && (
+                    <p className="text-xs text-[var(--text-muted)]">
+                      Turno abierto por <strong>{session.cajero}</strong> — vas a cerrarlo con tu cuenta.
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <label className="block text-sm uppercase tracking-wide text-[var(--text-secondary)]">
@@ -770,8 +769,7 @@ export default function CajaClient({
                 </div>
                 {cierreBloqueado && !closing && (
                   <p className="text-xs text-[var(--text-muted)]">
-                    {!cerradoPor.trim() ? "Completá quién cierra."
-                      : faltaContado ? "Ingresá el efectivo contado para cerrar."
+                    {faltaContado ? "Ingresá el efectivo contado para cerrar."
                       : faltaNotaPorDescuadre ? "Hay descuadre: dejá una nota explicándolo." : ""}
                   </p>
                 )}

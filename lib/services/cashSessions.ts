@@ -197,14 +197,21 @@ export async function fetchMovimientosDetallados(desde: string, hasta: string): 
  * Abre una nueva sesión de caja.
  * Lanza error si ya hay una sesión abierta (enforced por idx_one_open_session).
  */
+/**
+ * Abre el turno a nombre de la cuenta logueada. `cajero` y `userId` deben venir de la
+ * sesión autenticada (headers x-user-name/x-user-id, verificados por JWT en
+ * middleware.ts) — no de un campo de texto libre editable, para que quede registro real
+ * de quién abrió la caja.
+ */
 export async function openCashSession(
   cajero: string,
   monto_inicial: number,
-  monto_inicial_brl: number
+  monto_inicial_brl: number,
+  userId: string | null
 ): Promise<CashSession> {
   const { data, error } = await supabase
     .from("cash_sessions")
-    .insert({ cajero: cajero.trim(), monto_inicial, monto_inicial_brl })
+    .insert({ cajero: cajero.trim(), monto_inicial, monto_inicial_brl, user_id: userId })
     .select("*")
     .single();
 
@@ -234,14 +241,18 @@ export async function getClosedSessions(limit = 10, userId?: string | null): Pro
 }
 
 /**
- * Cierra la sesión y graba el snapshot de totales via RPC atómica.
+ * Cierra la sesión y graba el snapshot de totales via RPC atómica. `cerradoPor`/
+ * `cerradoPorUserId` deben venir de la cuenta logueada (puede ser distinta de quien
+ * abrió el turno — el turno se entrega a otro cajero — pero siempre la cuenta real, no
+ * texto libre).
  */
 export async function closeCashSession(
   sessionId: string,
   cerradoPor: string,
   notas: string | null,
   contadoUyu: number | null = null,
-  contadoBrl: number | null = null
+  contadoBrl: number | null = null,
+  cerradoPorUserId: string | null = null
 ): Promise<void> {
   const { error } = await supabase.rpc("close_cash_session", {
     p_session_id: sessionId,
@@ -249,6 +260,7 @@ export async function closeCashSession(
     p_notas: notas?.trim() || null,
     p_efectivo_contado_uyu: contadoUyu,
     p_efectivo_contado_brl: contadoBrl,
+    p_cerrado_por_user_id: cerradoPorUserId,
   });
 
   if (error) throw new Error(error.message);

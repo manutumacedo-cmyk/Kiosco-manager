@@ -45,6 +45,12 @@ CREATE TABLE IF NOT EXISTS cash_sessions (
   cerrado_por         TEXT,                   -- quién cierra (puede diferir del cajero)
   cierre_at           TIMESTAMPTZ,
   notas_cierre        TEXT,
+  -- user_id / cerrado_por_user_id: cuenta real (tabla `users`, gestionada aparte — no
+  -- documentada en este archivo) que abrió/cerró el turno, verificada por JWT en
+  -- middleware.ts. `cajero`/`cerrado_por` (TEXT) quedan para mostrar el nombre, pero ya
+  -- no son texto libre editable — se completan con el username de la cuenta logueada.
+  user_id             UUID REFERENCES users(id),
+  cerrado_por_user_id UUID REFERENCES users(id),
   -- Snapshot de totales al cierre (NULL mientras está abierta)
   total_ventas        NUMERIC(10,2),
   total_efectivo_uyu  NUMERIC(10,2),
@@ -476,12 +482,15 @@ END;
 $$;
 
 -- 5) Cerrar sesión de caja y grabar snapshot de totales (atómico)
+-- p_cerrado_por_user_id: cuenta real de quien cierra (verificada por JWT), puede diferir
+-- de quien abrió el turno.
 CREATE OR REPLACE FUNCTION close_cash_session(
   p_session_id           UUID,
   p_cerrado_por          TEXT,
   p_notas                TEXT    DEFAULT NULL,
   p_efectivo_contado_uyu NUMERIC DEFAULT NULL,
-  p_efectivo_contado_brl NUMERIC DEFAULT NULL
+  p_efectivo_contado_brl NUMERIC DEFAULT NULL,
+  p_cerrado_por_user_id  UUID    DEFAULT NULL
 )
 RETURNS void
 LANGUAGE plpgsql
@@ -529,6 +538,7 @@ BEGIN
   UPDATE cash_sessions SET
     estado               = 'cerrada',
     cerrado_por          = p_cerrado_por,
+    cerrado_por_user_id  = p_cerrado_por_user_id,
     cierre_at            = now(),
     notas_cierre         = p_notas,
     total_ventas         = v_total_ventas,
