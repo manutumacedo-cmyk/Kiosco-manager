@@ -83,12 +83,8 @@ export default function CyberNav({ role }: Props) {
     <nav className="border-b border-[var(--slate-gray)] bg-[var(--carbon-gray)] px-4 py-3 md:px-6">
       <div className="flex flex-wrap items-center justify-between gap-y-3">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-3">
-          <div className="text-2xl font-bold leading-none md:text-3xl">
-            <span className="neon-text-cyan">24</span>
-            <span className="neon-text-magenta"> SIETE</span>
-          </div>
-          <Image src="/logo.png" alt="24 SIETE" width={32} height={32} />
+        <Link href="/" className="flex items-center gap-2">
+          <Image src="/logo.png" alt="24 SIETE" width={44} height={44} />
         </Link>
 
         {/* Navegación */}

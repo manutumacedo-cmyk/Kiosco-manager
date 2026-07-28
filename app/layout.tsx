@@ -28,10 +28,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased h-full overflow-hidden flex flex-col`}
       >
         <AppNav />
-        <Providers>{children}</Providers>
+        <main className="flex-1 min-h-0">
+          <Providers>{children}</Providers>
+        </main>
         <BrandWatermark />
       </body>
     </html>
