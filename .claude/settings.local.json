@@ -30,7 +30,20 @@
       "Bash(curl *)",
       "Bash(git fetch *)",
       "Bash(grep -rn \"lib/services/cashRegister\" --include=\"*.ts\" --include=\"*.tsx\" .)",
-      "Bash(grep -rn \"lib/services/strategicInsights\" --include=\"*.ts\" --include=\"*.tsx\" .)"
+      "Bash(grep -rn \"lib/services/strategicInsights\" --include=\"*.ts\" --include=\"*.tsx\" .)",
+      "Bash(git -C \"C:\\\\Users\\\\Manu Macedo\\\\Kiosco-manager\" diff docs/00-CONTEXTO.md)",
+      "PowerShell(npx tsc --noEmit)",
+      "Read(//c/c/Users/Manu Macedo/Kiosco-manager/app/**)",
+      "Read(//c/c/Users/Manu Macedo/Kiosco-manager/**)",
+      "Read(//c/c/Users/Manu Macedo/Kiosco-manager/docs/**)",
+      "Bash(sort -t B -k2 -n)",
+      "Bash(git rm *)",
+      "Bash(npm install *)",
+      "Bash(n8n --version)",
+      "Bash(claude mcp *)",
+      "Bash(git pull *)",
+      "Bash(git stash *)",
+      "Read(//c/Users/Manu Macedo/.gstack/projects/manutumacedo-cmyk-Kiosco-manager/**)"
     ]
   }
 }
