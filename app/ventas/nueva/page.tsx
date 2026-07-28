@@ -506,7 +506,7 @@ export default function NuevaVentaPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--deep-dark)] overflow-hidden">
+    <div className="h-full flex flex-col bg-[var(--deep-dark)] overflow-hidden">
 
       {/* ── HEADER ── */}
       <div className="flex items-center gap-4 px-4 py-2.5 border-b border-[var(--slate-gray)] bg-[var(--carbon-gray)]/50 flex-shrink-0">

@@ -45,31 +45,14 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo y título */}
         <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-4 mb-4">
-            <span className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-full animate-pulse-cyan">
-              <Image
-                src="/logo.png"
-                alt="Logo 24 SIETE"
-                width={56}
-                height={56}
-                priority
-                className="h-full w-full object-cover"
-              />
-            </span>
-            <h1 className="text-5xl font-bold leading-none">
-              <span className="neon-text-cyan">24</span>
-              <span className="neon-text-magenta"> SIETE</span>
-            </h1>
-            <span className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-full animate-pulse-magenta">
-              <Image
-                src="/logo.png"
-                alt="Logo 24 SIETE"
-                width={56}
-                height={56}
-                priority
-                className="h-full w-full object-cover"
-              />
-            </span>
+          <div className="flex items-center justify-center mb-4">
+            <Image
+              src="/logo.png"
+              alt="Logo 24 SIETE"
+              width={120}
+              height={120}
+              priority
+            />
           </div>
           <p className="text-[var(--text-secondary)] font-mono text-sm uppercase tracking-wide">
             24 SIETE: TU SED NO TIENE HORARIO, NOSOTROS TAMPOCO.

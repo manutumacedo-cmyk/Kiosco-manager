@@ -1,6 +1,6 @@
 import Link from "next/link";
+import Image from "next/image";
 import { headers } from "next/headers";
-import BrandMark from "@/components/BrandMark";
 import CajaStatusLine from "@/components/CajaStatusLine";
 import {
   BoxIcon,
@@ -46,7 +46,7 @@ export default async function Home() {
 
         {/* Marca */}
         <header className="flex flex-col items-center gap-4 text-center">
-          <BrandMark className="text-[20px] md:text-[24px]" />
+          <Image src="/logo.png" alt="24 SIETE" width={120} height={120} priority />
           <p className="font-mono text-sm tracking-wide text-[var(--text-secondary)]">
             TU SED NO TIENE HORARIO, NOSOTROS TAMPOCO.
           </p>
