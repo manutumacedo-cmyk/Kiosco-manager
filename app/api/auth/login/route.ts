@@ -37,7 +37,8 @@ export async function POST(request: NextRequest) {
       request.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
       "unknown";
 
-    const { username, password } = await request.json();
+    const { username: rawUsername, password } = await request.json();
+    const username = typeof rawUsername === "string" ? rawUsername.trim() : rawUsername;
 
     if (!username || !password) {
       return NextResponse.json(

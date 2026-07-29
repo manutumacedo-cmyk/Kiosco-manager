@@ -17,7 +17,7 @@ export async function verifyCredentials(
   const { data: user } = await supabaseServer
     .from("users")
     .select("id, username, password_hash, role, active")
-    .eq("username", username)
+    .eq("username", username.trim())
     .single();
 
   if (!user) return null;
