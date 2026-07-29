@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { AppUser } from "@/lib/services/users";
 
-type User = AppUser & { created_at: string };
+type User = AppUser & { created_at: string; sesionActiva: boolean };
 
 export default function UsuariosClient({
   initialUsers,
@@ -27,6 +27,10 @@ export default function UsuariosClient({
   const [resetTarget, setResetTarget] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [resetting, setResetting] = useState(false);
+
+  // Eliminar usuario
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   function notify(msg: string, isError = false) {
     if (isError) { setError(msg); setSuccess(null); }
@@ -98,7 +102,25 @@ export default function UsuariosClient({
     }
   }
 
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/usuarios/${deleteTarget}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Error al eliminar");
+      setUsers((prev) => prev.filter((u) => u.id !== deleteTarget));
+      setDeleteTarget(null);
+      notify("Usuario eliminado");
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Error al eliminar usuario", true);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   const userForReset = resetTarget ? users.find((u) => u.id === resetTarget) : null;
+  const userForDelete = deleteTarget ? users.find((u) => u.id === deleteTarget) : null;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -184,6 +206,7 @@ export default function UsuariosClient({
               <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Usuario</th>
               <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Rol</th>
               <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Estado</th>
+              <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Sesión</th>
               <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Creado</th>
               <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Acciones</th>
             </tr>
@@ -226,6 +249,17 @@ export default function UsuariosClient({
                       </span>
                     )}
                   </td>
+                  <td className="p-3">
+                    {u.sesionActiva ? (
+                      <span className="text-xs px-2 py-1 rounded-full border border-[var(--success)] text-[var(--success)] bg-[rgba(0,255,136,0.08)]">
+                        🟢 Activa
+                      </span>
+                    ) : (
+                      <span className="text-xs px-2 py-1 rounded-full border border-[var(--slate-gray)] text-[var(--text-secondary)]">
+                        ⚪ Sin sesión
+                      </span>
+                    )}
+                  </td>
                   <td className="p-3 text-[var(--text-secondary)] font-mono text-xs">
                     {new Intl.DateTimeFormat("es-UY", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(u.created_at))}
                   </td>
@@ -250,6 +284,14 @@ export default function UsuariosClient({
                       >
                         Reset clave
                       </button>
+                      {!isMe && (
+                        <button
+                          className="text-xs px-3 py-1.5 rounded-lg border border-[var(--error)] text-[var(--error)] hover:bg-[rgba(255,59,59,0.08)] transition-all"
+                          onClick={() => setDeleteTarget(u.id)}
+                        >
+                          Eliminar
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -298,6 +340,38 @@ export default function UsuariosClient({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: eliminar usuario */}
+      {deleteTarget && userForDelete && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="data-card border-[var(--error)] w-full max-w-sm space-y-4">
+            <h2 className="text-lg font-bold text-[var(--error)] uppercase tracking-wide">
+              Eliminar usuario
+            </h2>
+            <p className="text-sm text-[var(--text-secondary)]">
+              ¿Eliminar a <span className="font-bold text-[var(--text-primary)]">{userForDelete.username}</span>?
+              No va a poder volver a loguearse. Esta acción no se puede deshacer desde acá.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 text-sm px-3 py-2 rounded-lg border border-[var(--error)] text-[var(--error)] hover:bg-[rgba(255,59,59,0.08)] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              >
+                {deleting ? "Eliminando..." : "Confirmar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="cyber-button flex-1"
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -3,6 +3,8 @@ import { jwtVerify } from "jose";
 import type { UserRole } from "@/lib/services/users";
 
 const AUTH_COOKIE_NAME = "24siete_auth_token";
+const SESSION_CHECK_COOKIE_NAME = "24siete_session_check";
+const SESSION_CHECK_INTERVAL_MS = 3 * 60 * 1000; // revalidar sesión contra la DB cada ~3 min
 
 // Rutas accesibles solo por admin (páginas y API routes bajo ese prefijo)
 const ADMIN_ONLY_ROUTES = ["/reportes", "/historial", "/usuarios", "/api/usuarios"];
@@ -17,6 +19,7 @@ interface JwtPayload {
   sub: string;
   username: string;
   role: UserRole;
+  sid: string;
 }
 
 async function verifyToken(token: string): Promise<JwtPayload | null> {
@@ -26,6 +29,7 @@ async function verifyToken(token: string): Promise<JwtPayload | null> {
       sub: payload.sub as string,
       username: payload.username as string,
       role: payload.role as UserRole,
+      sid: payload.sid as string,
     };
   } catch {
     return null;
@@ -35,8 +39,16 @@ async function verifyToken(token: string): Promise<JwtPayload | null> {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Solo el endpoint de login es público
-  if (pathname.startsWith("/login") || pathname === "/api/auth/login") {
+  // Solo el endpoint de login es público. /api/auth/verify-session también
+  // queda afuera de este gate: es el propio endpoint que la revalidación
+  // periódica de abajo llama por fetch, y hace su propia verificación
+  // completa (firma + DB) — si no lo excluimos acá, esa request interna
+  // volvería a pasar por este middleware y dispararía un loop.
+  if (
+    pathname.startsWith("/login") ||
+    pathname === "/api/auth/login" ||
+    pathname === "/api/auth/verify-session"
+  ) {
     return NextResponse.next();
   }
 
@@ -51,6 +63,7 @@ export async function middleware(request: NextRequest) {
   if (!payload) {
     const response = NextResponse.redirect(new URL("/login", request.url));
     response.cookies.delete(AUTH_COOKIE_NAME);
+    response.cookies.delete(SESSION_CHECK_COOKIE_NAME);
     return response;
   }
 
@@ -60,11 +73,48 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/", request.url));
   }
 
+  // Revalidación periódica: la firma del JWT ya se verificó arriba sin tocar
+  // la DB. Cada ~3 min, además, confirmamos contra la DB que la cuenta sigue
+  // activa/no eliminada y que la sesión no fue cerrada (logout) ni eliminada
+  // por un admin. supabaseServer no se puede usar acá (Edge Runtime), por
+  // eso se llama por fetch a un route handler que sí puede.
+  const lastCheck = Number(request.cookies.get(SESSION_CHECK_COOKIE_NAME)?.value ?? 0);
+  const needsRevalidation = Date.now() - lastCheck >= SESSION_CHECK_INTERVAL_MS;
+  let refreshSessionCheck = false;
+
+  if (needsRevalidation) {
+    try {
+      const verifyRes = await fetch(new URL("/api/auth/verify-session", request.url), {
+        headers: { cookie: request.headers.get("cookie") ?? "" },
+      });
+      if (!verifyRes.ok) {
+        const response = NextResponse.redirect(new URL("/login", request.url));
+        response.cookies.delete(AUTH_COOKIE_NAME);
+        response.cookies.delete(SESSION_CHECK_COOKIE_NAME);
+        return response;
+      }
+      refreshSessionCheck = true;
+    } catch (error) {
+      // Fail-open: un error de red interno no debe frenar la caja en hora
+      // pico. Se reintenta en la próxima request.
+      console.error("Error revalidando sesión:", error);
+    }
+  }
+
   // Inyectar rol e id en headers para que los Server Components los lean sin re-decodificar
   const response = NextResponse.next();
   response.headers.set("x-user-role", payload.role);
   response.headers.set("x-user-id", payload.sub);
   response.headers.set("x-user-name", payload.username);
+  if (refreshSessionCheck) {
+    response.cookies.set(SESSION_CHECK_COOKIE_NAME, String(Date.now()), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 8,
+      path: "/",
+    });
+  }
   return response;
 }
 
