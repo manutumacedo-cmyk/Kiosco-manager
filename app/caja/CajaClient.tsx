@@ -250,14 +250,14 @@ export default function CajaClient({
 
   if (pageState === "loading") {
     return (
-      <div className="h-full flex items-center justify-center">
+      <div className="flex items-center justify-center min-h-[60vh]">
         <p className="text-[var(--text-secondary)] animate-pulse">Cargando...</p>
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto"><div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
+    <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
       <div className="flex items-center gap-3">
         <Link href="/">
           <Image src="/logo.png" alt="24 SIETE" width={40} height={40} className="cursor-pointer" />
@@ -980,6 +980,6 @@ export default function CajaClient({
           </div>
         </div>
       )}
-    </div></div>
+    </div>
   );
 }
