@@ -84,6 +84,18 @@ export function HistoryIcon({ className, size = 24 }: IconProps) {
   );
 }
 
+// Flechas opuestas: entradas y salidas de plata del local.
+export function CashFlowIcon({ className, size = 24 }: IconProps) {
+  return (
+    <svg {...base(size, className)}>
+      <path d="M4 8h13" />
+      <path d="M14 5l3 3-3 3" />
+      <path d="M20 16H7" />
+      <path d="M10 13l-3 3 3 3" />
+    </svg>
+  );
+}
+
 export function UsersIcon({ className, size = 24 }: IconProps) {
   return (
     <svg {...base(size, className)}>

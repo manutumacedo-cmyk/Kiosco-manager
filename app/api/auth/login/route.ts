@@ -37,7 +37,8 @@ export async function POST(request: NextRequest) {
       request.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
       "unknown";
 
-    const { username, password } = await request.json();
+    const { username: rawUsername, password } = await request.json();
+    const username = typeof rawUsername === "string" ? rawUsername.trim() : rawUsername;
 
     if (!username || !password) {
       return NextResponse.json(
@@ -62,7 +63,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Credenciales incorrectas" }, { status: 401 });
     }
 
-    const token = await createToken({ sub: user.id, username: user.username, role: user.role });
+    const { data: session, error: sessionError } = await supabaseServer
+      .from("user_sessions")
+      .insert({
+        user_id: user.id,
+        expires_at: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
+        ip_address: ip,
+        user_agent: request.headers.get("user-agent"),
+      })
+      .select("id")
+      .single();
+    if (sessionError || !session) {
+      throw new Error(sessionError?.message ?? "No se pudo crear la sesión");
+    }
+
+    const token = await createToken({
+      sub: user.id,
+      username: user.username,
+      role: user.role,
+      sid: session.id,
+    });
     await setAuthCookie(token);
 
     return NextResponse.json({ success: true, role: user.role });

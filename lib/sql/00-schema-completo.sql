@@ -45,6 +45,12 @@ CREATE TABLE IF NOT EXISTS cash_sessions (
   cerrado_por         TEXT,                   -- quién cierra (puede diferir del cajero)
   cierre_at           TIMESTAMPTZ,
   notas_cierre        TEXT,
+  -- user_id / cerrado_por_user_id: cuenta real (tabla `users`, gestionada aparte — no
+  -- documentada en este archivo) que abrió/cerró el turno, verificada por JWT en
+  -- middleware.ts. `cajero`/`cerrado_por` (TEXT) quedan para mostrar el nombre, pero ya
+  -- no son texto libre editable — se completan con el username de la cuenta logueada.
+  user_id             UUID REFERENCES users(id),
+  cerrado_por_user_id UUID REFERENCES users(id),
   -- Snapshot de totales al cierre (NULL mientras está abierta)
   total_ventas        NUMERIC(10,2),
   total_efectivo_uyu  NUMERIC(10,2),
@@ -71,6 +77,8 @@ CREATE TABLE IF NOT EXISTS cash_sessions (
 );
 
 -- ---- cash_outflows (movimientos de plata del local durante el turno: entrada/salida) — B32 ---
+-- categoria: obligatoria para 'salida' (restock/proveedor/gasto_personal/otro), NULL para
+-- 'entrada' (no aplica categorizar plata que entra). Ver migration_categoria_salidas.sql.
 CREATE TABLE IF NOT EXISTS cash_outflows (
   id          UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id  UUID          NOT NULL REFERENCES cash_sessions(id),
@@ -78,9 +86,21 @@ CREATE TABLE IF NOT EXISTS cash_outflows (
   moneda      TEXT          NOT NULL CHECK (moneda IN ('UYU','BRL')),
   tipo        TEXT          NOT NULL DEFAULT 'salida' CHECK (tipo IN ('entrada','salida')),
   motivo      TEXT          NOT NULL,
-  created_at  TIMESTAMPTZ   NOT NULL DEFAULT now()
+  categoria   TEXT,
+  created_at  TIMESTAMPTZ   NOT NULL DEFAULT now(),
+  CONSTRAINT chk_cash_outflows_categoria CHECK (
+    (tipo = 'salida' AND categoria IN ('restock', 'proveedor', 'gasto_personal', 'funcionario', 'otro'))
+    OR (tipo = 'entrada' AND categoria IS NULL)
+  )
 );
 CREATE INDEX IF NOT EXISTS idx_cash_outflows_session ON cash_outflows(session_id);
+
+-- Pre-suma salidas/entradas por sesión + categoría + moneda, para que el dashboard de
+-- reportes no reduzca fila por fila cada movimiento del período (hasta 30 sesiones).
+CREATE OR REPLACE VIEW cash_outflows_by_category AS
+SELECT session_id, tipo, categoria, moneda, SUM(monto) AS total
+FROM cash_outflows
+GROUP BY session_id, tipo, categoria, moneda;
 
 -- ---- sales (cabecera de venta) ------------------------------------------
 CREATE TABLE IF NOT EXISTS sales (
@@ -462,12 +482,15 @@ END;
 $$;
 
 -- 5) Cerrar sesión de caja y grabar snapshot de totales (atómico)
+-- p_cerrado_por_user_id: cuenta real de quien cierra (verificada por JWT), puede diferir
+-- de quien abrió el turno.
 CREATE OR REPLACE FUNCTION close_cash_session(
   p_session_id           UUID,
   p_cerrado_por          TEXT,
   p_notas                TEXT    DEFAULT NULL,
   p_efectivo_contado_uyu NUMERIC DEFAULT NULL,
-  p_efectivo_contado_brl NUMERIC DEFAULT NULL
+  p_efectivo_contado_brl NUMERIC DEFAULT NULL,
+  p_cerrado_por_user_id  UUID    DEFAULT NULL
 )
 RETURNS void
 LANGUAGE plpgsql
@@ -515,6 +538,7 @@ BEGIN
   UPDATE cash_sessions SET
     estado               = 'cerrada',
     cerrado_por          = p_cerrado_por,
+    cerrado_por_user_id  = p_cerrado_por_user_id,
     cierre_at            = now(),
     notas_cierre         = p_notas,
     total_ventas         = v_total_ventas,
@@ -533,18 +557,21 @@ END;
 $$;
 
 -- 5b) Registrar movimiento de caja: entrada o salida (atómica) — B32
+-- p_categoria: obligatoria (con default 'otro') para salida, ignorada para entrada.
 CREATE OR REPLACE FUNCTION register_cash_movement(
   p_session_id UUID,
   p_monto      NUMERIC,
   p_moneda     TEXT,
   p_tipo       TEXT,
-  p_motivo     TEXT
+  p_motivo     TEXT,
+  p_categoria  TEXT DEFAULT NULL
 )
 RETURNS UUID
 LANGUAGE plpgsql
 AS $$
 DECLARE
   v_id UUID;
+  v_categoria TEXT;
 BEGIN
   IF p_monto IS NULL OR p_monto <= 0 THEN
     RAISE EXCEPTION 'El monto debe ser mayor a cero';
@@ -556,14 +583,23 @@ BEGIN
     RAISE EXCEPTION 'Tipo de movimiento inválido: %', p_tipo;
   END IF;
 
+  IF lower(p_tipo) = 'salida' THEN
+    v_categoria := lower(coalesce(p_categoria, 'otro'));
+    IF v_categoria NOT IN ('restock', 'proveedor', 'gasto_personal', 'funcionario', 'otro') THEN
+      RAISE EXCEPTION 'Categoría de salida inválida: %', p_categoria;
+    END IF;
+  ELSE
+    v_categoria := NULL;
+  END IF;
+
   -- Lock de la sesión: evita registrar un movimiento mientras otro la cierra
   PERFORM 1 FROM cash_sessions WHERE id = p_session_id AND estado = 'abierta' FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'No hay turno abierto para registrar el movimiento';
   END IF;
 
-  INSERT INTO cash_outflows (session_id, monto, moneda, tipo, motivo)
-  VALUES (p_session_id, p_monto, upper(p_moneda), lower(p_tipo), trim(p_motivo))
+  INSERT INTO cash_outflows (session_id, monto, moneda, tipo, motivo, categoria)
+  VALUES (p_session_id, p_monto, upper(p_moneda), lower(p_tipo), trim(p_motivo), v_categoria)
   RETURNING id INTO v_id;
 
   RETURN v_id;

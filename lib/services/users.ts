@@ -17,7 +17,8 @@ export async function verifyCredentials(
   const { data: user } = await supabaseServer
     .from("users")
     .select("id, username, password_hash, role, active")
-    .eq("username", username)
+    .eq("username", username.trim())
+    .is("deleted_at", null)
     .single();
 
   if (!user) return null;
@@ -29,12 +30,24 @@ export async function verifyCredentials(
   return { id: user.id, username: user.username, role: user.role, active: user.active };
 }
 
-export async function listUsers(): Promise<(AppUser & { created_at: string })[]> {
+export async function listUsers(): Promise<
+  (AppUser & { created_at: string; sesionActiva: boolean })[]
+> {
   const { data } = await supabaseServer
     .from("users")
     .select("id, username, role, active, created_at")
+    .is("deleted_at", null)
     .order("created_at");
-  return data ?? [];
+  const users = data ?? [];
+
+  const { data: activeSessions } = await supabaseServer
+    .from("user_sessions")
+    .select("user_id")
+    .is("ended_at", null)
+    .gt("expires_at", new Date().toISOString());
+  const activeUserIds = new Set((activeSessions ?? []).map((s) => s.user_id));
+
+  return users.map((u) => ({ ...u, sesionActiva: activeUserIds.has(u.id) }));
 }
 
 export async function createUser(
@@ -54,12 +67,41 @@ export async function createUser(
 }
 
 export async function toggleUserActive(id: string, active: boolean): Promise<void> {
-  const { error } = await supabaseServer.from("users").update({ active }).eq("id", id);
+  const { data, error } = await supabaseServer
+    .from("users")
+    .update({ active })
+    .eq("id", id)
+    .select();
+
+  if (error || !data?.length) {
+    throw new Error("Usuario no encontrado o sin cambios");
+  }
+}
+
+export async function deleteUser(id: string): Promise<void> {
+  const { error } = await supabaseServer
+    .from("users")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id)
+    .is("deleted_at", null);
   if (error) throw new Error(error.message);
+
+  await supabaseServer
+    .from("user_sessions")
+    .update({ ended_at: new Date().toISOString() })
+    .eq("user_id", id)
+    .is("ended_at", null);
 }
 
 export async function resetPassword(id: string, newPassword: string): Promise<void> {
   const password_hash = await bcrypt.hash(newPassword, 12);
-  const { error } = await supabaseServer.from("users").update({ password_hash }).eq("id", id);
-  if (error) throw new Error(error.message);
+  const { data, error } = await supabaseServer
+    .from("users")
+    .update({ password_hash })
+    .eq("id", id)
+    .select();
+
+  if (error || !data?.length) {
+    throw new Error("Usuario no encontrado o reset falló");
+  }
 }

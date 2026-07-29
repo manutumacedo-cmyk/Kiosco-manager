@@ -389,6 +389,24 @@
 
 > **Nota:** el costo en vivo de reportes históricos ya está cubierto por **B15**; no se duplica acá.
 
+### Autenticación
+
+#### B34 · El login trata `"usuario"` y `"usuario "` (con espacio) como cuentas distintas 🟠
+- **Dónde:** [`app/api/auth/login/route.ts`](../app/api/auth/login/route.ts#L40) (sin trim del
+  `username` del body) · [`verifyCredentials`](../lib/services/users.ts#L13-L21) (match exacto
+  contra `users.username`, tampoco trimea) · rate-limit por usuario/IP en el mismo route
+  (líneas 9-26).
+- **Qué pasa:** Un typo con espacio al final/inicio del usuario (ej. `"Carla "`) genera intentos
+  fallidos contra un usuario que en la práctica no existe como tal. Como el rate-limit también
+  cuenta por **IP** (no solo por usuario), 5 intentos fallidos por el typo bastan para activar el
+  bloqueo de 15 minutos — y ese bloqueo por IP afecta a **todas** las cuentas del kiosco desde esa
+  red, no solo a la que tiene el typo.
+- **Impacto:** Un solo error de tipeo puede dejar a todo el kiosco sin poder cobrar por 15 minutos
+  en plena hora pico.
+- **Fix:** trim del `username` apenas se lee el body en `login/route.ts`, antes de `isRateLimited`,
+  `verifyCredentials` y `logAttempt`, para que el bucket de rate-limit y la búsqueda en `users`
+  usen el mismo valor. Trim defensivo también en `verifyCredentials`. No se trimea la contraseña.
+
 ### Higiene / repo
 
 #### B31 · Carpeta `web/` duplicada (copia vieja) 🟡

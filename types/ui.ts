@@ -28,7 +28,7 @@ export type PaymentMethod =
   | "debito"
   | "credito"
   | "transferencia"
-  | "mercadopago";
+  | "pix";
 
 export type CategoryType = string;
 

@@ -41,6 +41,11 @@ export default function NuevaVentaPage() {
   const [showNota, setShowNota] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Multiplicador de cantidad: el cajero apreta un dígito (2-9) y el próximo producto
+  // que toca entra con esa cantidad de una — evita clickear el mismo producto varias
+  // veces para vender, por ej., 3 unidades. Se resetea a 1 después de cada uso.
+  const [qtyMultiplier, setQtyMultiplier] = useState(1);
+
   // Tasa de cambio (se snapshot-ea en cada venta)
   const [exchangeRate, setExchangeRate] = useState(7.5); // BRL -> UYU
 
@@ -101,13 +106,22 @@ export default function NuevaVentaPage() {
       const tag = (e.target as HTMLElement).tagName;
       const inInput = tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA";
 
-      // Esc: siempre activo, prioridad modal > búsqueda
+      // Esc: siempre activo, prioridad modal > búsqueda > multiplicador armado
       if (e.key === "Escape") {
         if (showCobrarModal) { cerrarCobro(); return; }
         if (document.activeElement === searchInputRef.current) {
           setQ("");
           searchInputRef.current?.blur();
         }
+        setQtyMultiplier(1);
+        return;
+      }
+
+      // Dígitos 2-9 (fuera de inputs, sin modal de cobro abierto): arman el multiplicador
+      // de cantidad — el próximo producto que se toque entra con esa cantidad de una.
+      if (!inInput && !showCobrarModal && /^[2-9]$/.test(e.key)) {
+        e.preventDefault();
+        setQtyMultiplier(Number(e.key));
         return;
       }
 
@@ -179,21 +193,30 @@ export default function NuevaVentaPage() {
 
   function add(p: Product) {
     if (p.stock <= 0) return;
+    const qty = qtyMultiplier;
 
     setCart((prev) => {
       const f = prev.find((x) => x.product_id === p.id && !x.isCombo);
       if (f) {
-        if (f.cantidad + 1 > f.stock_actual) return prev;
+        const agregable = Math.min(qty, Math.max(0, f.stock_actual - f.cantidad));
+        if (agregable <= 0) return prev;
+        if (agregable < qty) {
+          toast.warning(`Solo quedan ${agregable} u. más de "${p.nombre}" — se agregaron esas`);
+        }
         return prev.map((x) =>
-          x.product_id === p.id && !x.isCombo ? { ...x, cantidad: x.cantidad + 1 } : x
+          x.product_id === p.id && !x.isCombo ? { ...x, cantidad: x.cantidad + agregable } : x
         );
+      }
+      const agregable = Math.min(qty, p.stock);
+      if (agregable < qty) {
+        toast.warning(`Solo hay ${agregable} u. de "${p.nombre}" — se agregaron esas`);
       }
       return [
         ...prev,
         {
           product_id: p.id,
           nombre: p.nombre,
-          cantidad: 1,
+          cantidad: agregable,
           precio_unitario: Number(p.precio) || 0,
           stock_actual: p.stock,
           categoria: p.categoria,
@@ -205,13 +228,16 @@ export default function NuevaVentaPage() {
     });
 
     setQ("");
+    setQtyMultiplier(1);
   }
 
   function addCombo(combo: ComboWithProducts) {
-    // Verificar stock de todos los productos del combo
+    const qty = qtyMultiplier;
+
+    // Verificar stock de todos los productos del combo (para la cantidad de combos pedida)
     for (const item of combo.items) {
       const product = products.find((p) => p.id === item.product_id);
-      if (!product || product.stock < item.cantidad) {
+      if (!product || product.stock < item.cantidad * qty) {
         toast.warning(`Stock insuficiente para "${item.nombre}"`);
         return;
       }
@@ -222,7 +248,7 @@ export default function NuevaVentaPage() {
       {
         product_id: combo.id, // Usamos el ID del combo como product_id
         nombre: combo.nombre,
-        cantidad: 1,
+        cantidad: qty,
         precio_unitario: Number(combo.precio) || 0,
         stock_actual: 999, // Los combos no tienen límite directo
         categoria: "Combo",
@@ -231,6 +257,7 @@ export default function NuevaVentaPage() {
         shotExtra: 0,
       },
     ]);
+    setQtyMultiplier(1);
   }
 
   function remove(product_id: string, isCombo: boolean = false) {
@@ -307,6 +334,15 @@ export default function NuevaVentaPage() {
     const paidInUYU = paidCurrency === "UYU" ? paidAmount : paidAmount * exchangeRate;
     return paidInUYU - total;
   }, [paidAmount, paidCurrency, total, exchangeRate]);
+
+  // Monto exacto en BRL para "pago justo". Solo es pagable de verdad con
+  // billetes/monedas reales si los centavos son múltiplo de 5 (moneda mínima
+  // en circulación, R$0.05) — si no, el cajero no puede recibir ese monto
+  // exacto y el botón de un toque queda inhabilitado (causa real del
+  // descuadre en reales: se usaba igual con un billete redondo y el vuelto
+  // nunca se registraba).
+  const brlPagoJustoMonto = total / exchangeRate;
+  const brlPagoJustoExacto = Math.round(brlPagoJustoMonto * 100) % 5 === 0;
 
   // Único punto que registra una venta. Recibe el pago EXPLÍCITO (mata B24/B25:
   // no hay default ambiente de moneda; cada venta nace de una acción explícita).
@@ -527,6 +563,15 @@ export default function NuevaVentaPage() {
           />
           <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono px-1.5 py-0.5 rounded border border-[var(--slate-gray)] text-[var(--text-muted)] pointer-events-none">/</kbd>
         </div>
+        {qtyMultiplier > 1 && (
+          <button
+            onClick={() => setQtyMultiplier(1)}
+            className="flex-shrink-0 flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border-2 border-[var(--neon-magenta)] text-[var(--neon-magenta)] bg-[var(--magenta-glow)] animate-pulse"
+            title="Cancelar (Esc)"
+          >
+            ×{qtyMultiplier} ACTIVO — tocá un producto
+          </button>
+        )}
         <div className="flex-shrink-0 text-[11px] font-mono px-3 py-1.5 rounded-lg border border-[var(--slate-gray)] bg-[var(--deep-dark)]">
           <span className="text-[var(--text-muted)]">1 BRL = </span>
           <span className="text-[var(--neon-cyan)] font-bold">${exchangeRate.toFixed(2)}</span>
@@ -557,6 +602,12 @@ export default function NuevaVentaPage() {
           </button>
         ))}
       </div>
+
+      {qtyMultiplier === 1 && (
+        <div className="hidden lg:block px-4 py-1 text-[10px] font-mono text-[var(--text-muted)] border-b border-[var(--slate-gray)] flex-shrink-0">
+          Tip: apretá <kbd className="px-1 py-0.5 rounded border border-[var(--slate-gray)]">2</kbd>–<kbd className="px-1 py-0.5 rounded border border-[var(--slate-gray)]">9</kbd> y tocá un producto para agregar esa cantidad de una
+        </div>
+      )}
 
       {/* ── CUERPO: Grilla + Carrito ── */}
       <div className="flex flex-1 overflow-hidden">
@@ -811,12 +862,15 @@ export default function NuevaVentaPage() {
                   </button>
                   <button
                     onClick={cobrarPagoJustoBRL}
-                    disabled={saving}
-                    className="py-5 rounded-2xl border-2 border-[var(--neon-cyan)] text-[var(--neon-cyan)] font-bold uppercase tracking-wide hover:bg-[var(--neon-cyan)] hover:text-[var(--deep-dark)] active:scale-[0.98] disabled:opacity-50 transition-all"
+                    disabled={saving || !brlPagoJustoExacto}
+                    title={!brlPagoJustoExacto ? "No se puede pagar exacto con billetes/monedas reales — elegí un billete abajo" : undefined}
+                    className="py-5 rounded-2xl border-2 border-[var(--neon-cyan)] text-[var(--neon-cyan)] font-bold uppercase tracking-wide hover:bg-[var(--neon-cyan)] hover:text-[var(--deep-dark)] active:scale-[0.98] disabled:opacity-40 transition-all"
                   >
                     <div className="text-base leading-tight">PAGO JUSTO</div>
-                    <div className="text-xl font-mono mt-0.5">R${(total / exchangeRate).toFixed(2)}</div>
-                    <div className="text-[10px] font-normal opacity-80 mt-0.5">BRL · un toque</div>
+                    <div className="text-xl font-mono mt-0.5">R${brlPagoJustoMonto.toFixed(2)}</div>
+                    <div className="text-[10px] font-normal opacity-80 mt-0.5">
+                      {brlPagoJustoExacto ? "BRL · un toque" : "no hay vuelto exacto ↓"}
+                    </div>
                   </button>
                 </div>
 
@@ -897,7 +951,7 @@ export default function NuevaVentaPage() {
                 <div className="border-t border-[var(--slate-gray)] pt-3">
                   <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide mb-2">Pago digital</div>
                   <div className="grid grid-cols-4 gap-2">
-                    {([["debito", "Débito"], ["credito", "Crédito"], ["transferencia", "Transf."], ["mercadopago", "MP"]] as const).map(([val, label]) => (
+                    {([["debito", "Débito"], ["credito", "Crédito"], ["transferencia", "Transf."], ["pix", "Pix"]] as const).map(([val, label]) => (
                       <button
                         key={val}
                         onClick={() => cobrarDigital(val)}

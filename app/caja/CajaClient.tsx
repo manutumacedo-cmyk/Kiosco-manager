@@ -14,7 +14,15 @@ import {
   type SessionTotals,
 } from "@/lib/services/cashSessions";
 import { fetchSalesBySession, cancelSaleOwnTurno } from "@/lib/services/sales";
-import type { CashSession, CashOutflow, Sale } from "@/types";
+import type { CashSession, CashOutflow, Sale, CategoriaSalida } from "@/types";
+
+const CATEGORIAS_SALIDA: { id: CategoriaSalida; label: string }[] = [
+  { id: "restock", label: "Restock" },
+  { id: "proveedor", label: "Proveedor" },
+  { id: "funcionario", label: "Funcionario" },
+  { id: "gasto_personal", label: "Gasto personal" },
+  { id: "otro", label: "Otro" },
+];
 
 type PageState = "loading" | "cerrada" | "abierta" | "cerrando";
 
@@ -45,12 +53,10 @@ export default function CajaClient({
   const [totals, setTotals] = useState<SessionTotals | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [cajero, setCajero] = useState("");
   const [montoInicial, setMontoInicial] = useState("");
   const [montoInicialBrl, setMontoInicialBrl] = useState("");
   const [opening, setOpening] = useState(false);
 
-  const [cerradoPor, setCerradoPor] = useState("");
   const [notas, setNotas] = useState("");
   const [contadoUyu, setContadoUyu] = useState("");
   const [contadoBrl, setContadoBrl] = useState("");
@@ -64,11 +70,16 @@ export default function CajaClient({
   const [salidaMoneda, setSalidaMoneda] = useState<"UYU" | "BRL">("UYU");
   const [salidaTipo, setSalidaTipo] = useState<"entrada" | "salida">("salida");
   const [salidaMotivo, setSalidaMotivo] = useState("");
+  const [salidaCategoria, setSalidaCategoria] = useState<CategoriaSalida>("restock");
   const [savingSalida, setSavingSalida] = useState(false);
 
   const [turnoSales, setTurnoSales] = useState<Sale[]>([]);
   const [showCancelSaleId, setShowCancelSaleId] = useState<string | null>(null);
   const [cancelingSaleId, setCancelingSaleId] = useState<string | null>(null);
+
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const [sessionSalesCache, setSessionSalesCache] = useState<Record<string, Sale[]>>({});
+  const [loadingSessionSalesId, setLoadingSessionSalesId] = useState<string | null>(null);
 
   const loadSession = useCallback(async () => {
     try {
@@ -139,7 +150,7 @@ export default function CajaClient({
     setOpening(true);
     setError(null);
     try {
-      const s = await openCashSession(cajero, parseFloat(montoInicial), parseFloat(montoInicialBrl) || 0);
+      const s = await openCashSession(username, parseFloat(montoInicial), parseFloat(montoInicialBrl) || 0, userId);
       setSession(s);
       setTotals({
         total_ventas: 0,
@@ -170,13 +181,12 @@ export default function CajaClient({
     setError(null);
     try {
       await closeCashSession(
-        session.id, cerradoPor, notas || null,
-        contadoUyuNum, hayMovimientoBrl ? contadoBrlNum : null
+        session.id, username, notas || null,
+        contadoUyuNum, hayMovimientoBrl ? contadoBrlNum : null, userId
       );
       setSession(null);
       setTotals(null);
       setTurnoSales([]);
-      setCerradoPor("");
       setNotas("");
       setContadoUyu("");
       setContadoBrl("");
@@ -191,6 +201,24 @@ export default function CajaClient({
     }
   }
 
+  async function handleToggleSession(sessionId: string) {
+    if (expandedSessionId === sessionId) {
+      setExpandedSessionId(null);
+      return;
+    }
+    setExpandedSessionId(sessionId);
+    if (sessionSalesCache[sessionId]) return;
+    setLoadingSessionSalesId(sessionId);
+    try {
+      const sales = await fetchSalesBySession(sessionId);
+      setSessionSalesCache((prev) => ({ ...prev, [sessionId]: sales }));
+    } catch {
+      // silencioso — el botón queda expandido sin ventas
+    } finally {
+      setLoadingSessionSalesId(null);
+    }
+  }
+
   async function handleRegistrarMovimiento(e: React.FormEvent) {
     e.preventDefault();
     if (!session) return;
@@ -198,7 +226,7 @@ export default function CajaClient({
     setSavingSalida(true);
     setError(null);
     try {
-      await registerCashMovement(session.id, monto, salidaMoneda, salidaTipo, salidaMotivo);
+      await registerCashMovement(session.id, monto, salidaMoneda, salidaTipo, salidaMotivo, salidaCategoria);
       const [t, o] = await Promise.all([getSessionTotals(session.id), fetchSessionOutflows(session.id)]);
       setTotals(t);
       setOutflows(o);
@@ -206,6 +234,7 @@ export default function CajaClient({
       setSalidaMotivo("");
       setSalidaMoneda("UYU");
       setSalidaTipo("salida");
+      setSalidaCategoria("restock");
       setShowSalidaModal(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al registrar el movimiento");
@@ -246,7 +275,7 @@ export default function CajaClient({
 
   const faltaContado = contadoUyu.trim() === "" || (hayMovimientoBrl && contadoBrl.trim() === "");
   const faltaNotaPorDescuadre = arqueoDescuadra && !notas.trim();
-  const cierreBloqueado = closing || !cerradoPor.trim() || faltaContado || faltaNotaPorDescuadre;
+  const cierreBloqueado = closing || faltaContado || faltaNotaPorDescuadre;
 
   if (pageState === "loading") {
     return (
@@ -288,15 +317,13 @@ export default function CajaClient({
               <label className="block text-sm uppercase tracking-wide text-[var(--text-secondary)]">
                 Cajero
               </label>
-              <input
-                type="text"
-                value={cajero}
-                onChange={(e) => setCajero(e.target.value)}
-                placeholder="Nombre del cajero"
-                required
-                autoFocus
-                className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors"
-              />
+              {/* Fijo a la cuenta logueada (verificada por JWT) — no es editable: antes
+                  cualquiera podía escribir cualquier nombre acá, sin quedar registro real
+                  de quién abrió la caja. */}
+              <div className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] flex items-center justify-between">
+                <span className="font-semibold">{username}</span>
+                <span className="text-xs text-[var(--text-muted)] uppercase">Tu cuenta</span>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -309,6 +336,7 @@ export default function CajaClient({
                   onChange={(e) => setMontoInicial(e.target.value)}
                   placeholder="0.00"
                   required
+                  autoFocus
                   min="0"
                   step="0.01"
                   className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors"
@@ -331,7 +359,7 @@ export default function CajaClient({
             </div>
             <button
               type="submit"
-              disabled={opening || !cajero.trim() || !montoInicial}
+              disabled={opening || !montoInicial}
               className="w-full py-3 rounded-lg font-bold uppercase tracking-wide transition-all neon-outline-cyan neon-text-cyan hover:bg-[var(--neon-cyan)]/10 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {opening ? "Abriendo..." : "Abrir turno"}
@@ -433,6 +461,11 @@ export default function CajaClient({
                 {outflows.map((o) => (
                   <div key={o.id} className="flex items-baseline justify-between gap-3">
                     <span className="text-[var(--text-secondary)] truncate">
+                      {o.categoria && (
+                        <span className="text-[10px] uppercase font-bold text-[var(--warning)] border border-[var(--warning)] rounded px-1 mr-1.5">
+                          {CATEGORIAS_SALIDA.find((c) => c.id === o.categoria)?.label ?? o.categoria}
+                        </span>
+                      )}
                       {o.motivo}
                       <span className="text-[var(--text-muted)] text-xs ml-2">
                         {new Intl.DateTimeFormat("es-UY", { hour: "2-digit", minute: "2-digit" }).format(new Date(o.created_at))}
@@ -497,7 +530,6 @@ export default function CajaClient({
 
           <button
             onClick={() => {
-              setCerradoPor(session.cajero);
               setContadoUyu("");
               setContadoBrl("");
               setArqueoConfirmado(false);
@@ -710,14 +742,18 @@ export default function CajaClient({
                   <label className="block text-sm uppercase tracking-wide text-[var(--text-secondary)]">
                     Cerrado por
                   </label>
-                  <input
-                    type="text"
-                    value={cerradoPor}
-                    onChange={(e) => setCerradoPor(e.target.value)}
-                    placeholder="Nombre de quien cierra"
-                    required
-                    className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors"
-                  />
+                  {/* Fijo a la cuenta logueada, igual que en apertura — puede ser distinta
+                      de quien abrió el turno (se entrega a otro cajero), pero siempre la
+                      cuenta real de quien está cerrando ahora, no texto libre. */}
+                  <div className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] flex items-center justify-between">
+                    <span className="font-semibold">{username}</span>
+                    <span className="text-xs text-[var(--text-muted)] uppercase">Tu cuenta</span>
+                  </div>
+                  {session.cajero !== username && (
+                    <p className="text-xs text-[var(--text-muted)]">
+                      Turno abierto por <strong>{session.cajero}</strong> — vas a cerrarlo con tu cuenta.
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <label className="block text-sm uppercase tracking-wide text-[var(--text-secondary)]">
@@ -733,8 +769,7 @@ export default function CajaClient({
                 </div>
                 {cierreBloqueado && !closing && (
                   <p className="text-xs text-[var(--text-muted)]">
-                    {!cerradoPor.trim() ? "Completá quién cierra."
-                      : faltaContado ? "Ingresá el efectivo contado para cerrar."
+                    {faltaContado ? "Ingresá el efectivo contado para cerrar."
                       : faltaNotaPorDescuadre ? "Hay descuadre: dejá una nota explicándolo." : ""}
                   </p>
                 )}
@@ -839,6 +874,56 @@ export default function CajaClient({
                     )}
                   </div>
                 </div>
+
+                {/* Panel de ventas del turno — solo admin */}
+                {role === "admin" && (
+                  <>
+                    <button
+                      onClick={() => handleToggleSession(s.id)}
+                      className="mt-3 w-full text-xs uppercase tracking-wide text-[var(--text-secondary)] hover:text-[var(--neon-cyan)] transition-colors flex items-center justify-center gap-1.5 pt-3 border-t border-[var(--slate-gray)]"
+                    >
+                      <span>{expandedSessionId === s.id ? "▲ Ocultar ventas" : "▼ Ver ventas del turno"}</span>
+                    </button>
+
+                    {expandedSessionId === s.id && (
+                      <div className="mt-3 bg-[var(--dark-bg)] rounded-lg border border-[var(--slate-gray)] overflow-hidden">
+                        {loadingSessionSalesId === s.id ? (
+                          <p className="text-xs text-[var(--text-secondary)] p-3 text-center animate-pulse">
+                            Cargando ventas...
+                          </p>
+                        ) : !sessionSalesCache[s.id] || sessionSalesCache[s.id].length === 0 ? (
+                          <p className="text-xs text-[var(--text-secondary)] p-3 text-center">
+                            Sin ventas registradas en este turno.
+                          </p>
+                        ) : (
+                          <div className="divide-y divide-[var(--slate-gray)] max-h-72 overflow-y-auto">
+                            {sessionSalesCache[s.id].map((v) => (
+                              <div
+                                key={v.id}
+                                className={`flex items-center justify-between gap-3 px-3 py-2 text-xs ${v.estado === "anulada" ? "opacity-40" : ""}`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="text-[var(--text-muted)] shrink-0">
+                                    {new Intl.DateTimeFormat("es-UY", { hour: "2-digit", minute: "2-digit" }).format(new Date(v.fecha))}
+                                  </span>
+                                  <span className={`capitalize shrink-0 ${v.estado === "anulada" ? "text-[var(--error)]" : "text-[var(--text-secondary)]"}`}>
+                                    {v.estado === "anulada" ? "❌ anulada" : v.metodo_pago}
+                                  </span>
+                                  {v.nota && (
+                                    <span className="text-[var(--text-muted)] truncate italic">{v.nota}</span>
+                                  )}
+                                </div>
+                                <span className={`font-mono font-semibold shrink-0 ${v.estado === "anulada" ? "line-through text-[var(--text-muted)]" : "text-[var(--text-primary)]"}`}>
+                                  {v.moneda === "BRL" ? `R$ ${fmtBRL(v.total)}` : `$ ${fmt(v.total)}`}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             ))}
           </div>
@@ -918,6 +1003,27 @@ export default function CajaClient({
                   </div>
                 </div>
               </div>
+              {salidaTipo === "salida" && (
+                <div className="space-y-1.5">
+                  <label className="block text-sm text-[var(--text-secondary)]">Categoría</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {CATEGORIAS_SALIDA.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setSalidaCategoria(c.id)}
+                        className={`px-3 py-2 rounded-lg text-sm font-semibold border transition-all ${
+                          salidaCategoria === c.id
+                            ? "bg-[var(--warning)] text-[var(--deep-dark)] border-[var(--warning)]"
+                            : "border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--warning)] hover:text-[var(--warning)]"
+                        }`}
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="space-y-1.5">
                 <label className="block text-sm text-[var(--text-secondary)]">Motivo (obligatorio)</label>
                 <input

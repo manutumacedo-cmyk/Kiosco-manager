@@ -52,6 +52,8 @@ export interface CashSession {
   monto_inicial_brl: number;
   estado: 'abierta' | 'cerrada';
   cerrado_por: string | null;
+  user_id: string | null;            // cuenta real que abrió el turno (verificada por JWT)
+  cerrado_por_user_id: string | null; // cuenta real que cerró el turno (puede diferir de user_id)
   cierre_at: string | null;
   notas_cierre: string | null;
   total_ventas: number | null;
@@ -70,6 +72,8 @@ export interface CashSession {
   created_at: string;
 }
 
+export type CategoriaSalida = 'restock' | 'proveedor' | 'gasto_personal' | 'funcionario' | 'otro';
+
 export interface CashOutflow {
   id: string;
   session_id: string;
@@ -77,6 +81,7 @@ export interface CashOutflow {
   moneda: 'UYU' | 'BRL';
   tipo: 'entrada' | 'salida';
   motivo: string;
+  categoria: CategoriaSalida | null; // null para 'entrada'; obligatoria para 'salida'
   created_at: string;
 }
 

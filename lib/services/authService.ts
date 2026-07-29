@@ -15,10 +15,11 @@ export interface TokenPayload {
   sub: string;
   username: string;
   role: UserRole;
+  sid: string;
 }
 
 export async function createToken(payload: TokenPayload): Promise<string> {
-  return new SignJWT({ username: payload.username, role: payload.role })
+  return new SignJWT({ username: payload.username, role: payload.role, sid: payload.sid })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(payload.sub)
     .setIssuedAt()
@@ -33,6 +34,7 @@ export async function verifyToken(token: string): Promise<TokenPayload | null> {
       sub: payload.sub as string,
       username: payload.username as string,
       role: payload.role as UserRole,
+      sid: payload.sid as string,
     };
   } catch {
     return null;

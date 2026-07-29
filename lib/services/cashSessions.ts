@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabaseClient";
-import type { CashSession, CashOutflow } from "@/types";
+import type { CashSession, CashOutflow, CategoriaSalida } from "@/types";
 
 export interface SessionTotals {
   total_ventas: number;
@@ -97,13 +97,16 @@ export async function getSessionTotals(sessionId: string): Promise<SessionTotals
 /**
  * Registra un movimiento de plata del local (entrada o salida) via RPC atómica.
  * La función SQL valida turno abierto, monto > 0, tipo y motivo no vacío. B32.
+ * `categoria` es obligatoria para "salida" (la RPC cae a "otro" si no se manda) e
+ * ignorada para "entrada".
  */
 export async function registerCashMovement(
   sessionId: string,
   monto: number,
   moneda: "UYU" | "BRL",
   tipo: "entrada" | "salida",
-  motivo: string
+  motivo: string,
+  categoria?: CategoriaSalida
 ): Promise<void> {
   const { error } = await supabase.rpc("register_cash_movement", {
     p_session_id: sessionId,
@@ -111,9 +114,34 @@ export async function registerCashMovement(
     p_moneda: moneda,
     p_tipo: tipo,
     p_motivo: motivo.trim(),
+    p_categoria: tipo === "salida" ? categoria ?? "otro" : null,
   });
 
   if (error) throw new Error(error.message);
+}
+
+/**
+ * Salidas por categoría, agregadas por sesión (vista `cash_outflows_by_category`), para
+ * un conjunto de sesiones. Usado por reportes para "ganancia real" y proyección de restock.
+ */
+export interface OutflowCategoryTotal {
+  session_id: string;
+  categoria: CategoriaSalida;
+  moneda: "UYU" | "BRL";
+  total: number;
+}
+
+export async function fetchOutflowsByCategory(sessionIds: string[]): Promise<OutflowCategoryTotal[]> {
+  if (sessionIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("cash_outflows_by_category")
+    .select("session_id, categoria, moneda, total")
+    .eq("tipo", "salida")
+    .in("session_id", sessionIds);
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as OutflowCategoryTotal[];
 }
 
 /**
@@ -130,18 +158,60 @@ export async function fetchSessionOutflows(sessionId: string): Promise<CashOutfl
   return (data ?? []) as CashOutflow[];
 }
 
+export interface MovimientoDetallado extends CashOutflow {
+  cajero: string;
+  apertura_turno: string;
+}
+
+/**
+ * Movimientos (entradas y salidas) de TODOS los turnos en un rango de fechas, con el
+ * cajero y la apertura del turno que los generó (join contra cash_sessions, ya que
+ * cash_outflows no tiene columna cajero propia). Para la página de historial completo
+ * ("Movimientos"), no para el turno activo (ver fetchSessionOutflows).
+ */
+export async function fetchMovimientosDetallados(desde: string, hasta: string): Promise<MovimientoDetallado[]> {
+  const { data, error } = await supabase
+    .from("cash_outflows")
+    .select("*, cash_sessions(cajero, apertura_at)")
+    .gte("created_at", desde)
+    .lte("created_at", hasta)
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(error.message);
+
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    session_id: row.session_id,
+    monto: row.monto,
+    moneda: row.moneda,
+    tipo: row.tipo,
+    motivo: row.motivo,
+    categoria: row.categoria,
+    created_at: row.created_at,
+    cajero: row.cash_sessions?.cajero ?? "Desconocido",
+    apertura_turno: row.cash_sessions?.apertura_at ?? row.created_at,
+  }));
+}
+
 /**
  * Abre una nueva sesión de caja.
  * Lanza error si ya hay una sesión abierta (enforced por idx_one_open_session).
  */
+/**
+ * Abre el turno a nombre de la cuenta logueada. `cajero` y `userId` deben venir de la
+ * sesión autenticada (headers x-user-name/x-user-id, verificados por JWT en
+ * middleware.ts) — no de un campo de texto libre editable, para que quede registro real
+ * de quién abrió la caja.
+ */
 export async function openCashSession(
   cajero: string,
   monto_inicial: number,
-  monto_inicial_brl: number
+  monto_inicial_brl: number,
+  userId: string | null
 ): Promise<CashSession> {
   const { data, error } = await supabase
     .from("cash_sessions")
-    .insert({ cajero: cajero.trim(), monto_inicial, monto_inicial_brl })
+    .insert({ cajero: cajero.trim(), monto_inicial, monto_inicial_brl, user_id: userId })
     .select("*")
     .single();
 
@@ -171,14 +241,18 @@ export async function getClosedSessions(limit = 10, userId?: string | null): Pro
 }
 
 /**
- * Cierra la sesión y graba el snapshot de totales via RPC atómica.
+ * Cierra la sesión y graba el snapshot de totales via RPC atómica. `cerradoPor`/
+ * `cerradoPorUserId` deben venir de la cuenta logueada (puede ser distinta de quien
+ * abrió el turno — el turno se entrega a otro cajero — pero siempre la cuenta real, no
+ * texto libre).
  */
 export async function closeCashSession(
   sessionId: string,
   cerradoPor: string,
   notas: string | null,
   contadoUyu: number | null = null,
-  contadoBrl: number | null = null
+  contadoBrl: number | null = null,
+  cerradoPorUserId: string | null = null
 ): Promise<void> {
   const { error } = await supabase.rpc("close_cash_session", {
     p_session_id: sessionId,
@@ -186,6 +260,7 @@ export async function closeCashSession(
     p_notas: notas?.trim() || null,
     p_efectivo_contado_uyu: contadoUyu,
     p_efectivo_contado_brl: contadoBrl,
+    p_cerrado_por_user_id: cerradoPorUserId,
   });
 
   if (error) throw new Error(error.message);
