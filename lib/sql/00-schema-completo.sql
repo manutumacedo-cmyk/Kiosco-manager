@@ -26,6 +26,12 @@ CREATE TABLE IF NOT EXISTS products (
   categoria    TEXT,                              -- Bebidas | Alimento | Vasos | Otros
   precio       NUMERIC(10,2) NOT NULL DEFAULT 0,
   costo        NUMERIC(10,2) NOT NULL DEFAULT 0,  -- para ganancia limpia (venta - costo)
+  -- Origen del costo cuando el producto se sirve de una botella (tragos): se guardan
+  -- los dos datos para que al cambiar el precio del proveedor se toque uno solo y se
+  -- recalcule. `costo` sigue siendo la única columna que leen los reportes (B39).
+  costo_botella         NUMERIC,
+  porciones_por_botella INTEGER,
+  costo_actualizado_at  TIMESTAMPTZ,
   stock        INTEGER NOT NULL DEFAULT 0,
   stock_minimo INTEGER NOT NULL DEFAULT 0,
   activo       BOOLEAN NOT NULL DEFAULT TRUE,
@@ -801,3 +807,118 @@ ON CONFLICT (currency_from, currency_to) DO NOTHING;
 -- =========================================================================
 -- FIN DEL ESQUEMA
 -- =========================================================================
+
+
+-- 7) turnos_con_stats: totales por turno, agregados en el servidor.
+-- El historial por turnos los necesita para 55+ turnos y ~2.500 ventas; hacerlo en
+-- el cliente obligaba a un .in() con miles de uuids (URL de ~95 KB, rechazada).
+-- OJO: el criterio de ganancia (ingresos - costo mercaderia - salidas UYU) es el
+-- mismo que calcularGananciaReal() en lib/services/reports.ts. Si cambia uno, cambiar el otro.
+CREATE OR REPLACE FUNCTION turnos_con_stats(p_limit integer DEFAULT 60)
+RETURNS TABLE (
+  session_id           uuid,
+  ingresos             numeric,
+  cantidad_ventas      integer,
+  cantidad_anuladas    integer,
+  costo_mercaderia     numeric,
+  salidas_uyu          numeric,
+  facturado_sin_costo  numeric,
+  cantidad_reasignadas integer
+)
+LANGUAGE sql
+STABLE
+AS $$
+  WITH turnos AS (
+    SELECT id FROM cash_sessions ORDER BY apertura_at DESC LIMIT p_limit
+  ),
+  ventas AS (
+    SELECT s.id, s.session_id, s.total, s.estado, s.session_id_original
+    FROM sales s
+    JOIN turnos t ON t.id = s.session_id
+  ),
+  -- Costo de items sueltos. product_id que no existe en products es una línea de
+  -- combo (sale_items no tiene FK a propósito, ver B2): su costo sale de abajo.
+  costo_items AS (
+    SELECT v.session_id,
+           SUM(p.costo * si.cantidad) AS costo,
+           -- Facturación de productos SIN costo cargado: es lo que permite avisar
+           -- que la ganancia está incompleta en vez de mostrarla como exacta (B39).
+           SUM(CASE WHEN COALESCE(p.costo, 0) = 0
+                    THEN si.cantidad * si.precio_unitario ELSE 0 END) AS sin_costo
+    FROM ventas v
+    JOIN sale_items si ON si.sale_id = v.id
+    JOIN products p ON p.id = si.product_id
+    WHERE v.estado = 'activa'
+    GROUP BY v.session_id
+  ),
+  costo_combos AS (
+    SELECT v.session_id, SUM(sc.costo_unitario * sc.cantidad) AS costo
+    FROM ventas v
+    JOIN sale_combos sc ON sc.sale_id = v.id
+    WHERE v.estado = 'activa'
+    GROUP BY v.session_id
+  ),
+  salidas AS (
+    SELECT o.session_id, SUM(o.monto) AS monto
+    FROM cash_outflows o
+    JOIN turnos t ON t.id = o.session_id
+    WHERE o.tipo = 'salida' AND o.moneda = 'UYU'
+    GROUP BY o.session_id
+  )
+  SELECT
+    t.id,
+    COALESCE(SUM(v.total) FILTER (WHERE v.estado = 'activa'), 0),
+    COALESCE(COUNT(*) FILTER (WHERE v.estado = 'activa'), 0)::integer,
+    COALESCE(COUNT(*) FILTER (WHERE v.estado = 'anulada'), 0)::integer,
+    COALESCE(MAX(ci.costo), 0) + COALESCE(MAX(cc.costo), 0),
+    COALESCE(MAX(sa.monto), 0),
+    COALESCE(MAX(ci.sin_costo), 0),
+    COALESCE(COUNT(*) FILTER (WHERE v.session_id_original IS NOT NULL), 0)::integer
+  FROM turnos t
+  LEFT JOIN ventas v       ON v.session_id  = t.id
+  LEFT JOIN costo_items ci ON ci.session_id = t.id
+  LEFT JOIN costo_combos cc ON cc.session_id = t.id
+  LEFT JOIN salidas sa     ON sa.session_id = t.id
+  GROUP BY t.id;
+$$;
+
+-- 8) productos_para_costear: catalogo ordenado por impacto para cargar costos (B39).
+-- Lo que mas factura y NO tiene costo va primero: ahi esta todo el error de margen.
+-- products.costo_botella / porciones_por_botella guardan el origen del calculo para
+-- los tragos servidos de botella; products.costo sigue siendo lo que leen los reportes.
+CREATE OR REPLACE FUNCTION productos_para_costear(p_dias integer DEFAULT 30)
+RETURNS TABLE (
+  id                    uuid,
+  nombre                text,
+  categoria             text,
+  precio                numeric,
+  costo                 numeric,
+  costo_botella         numeric,
+  porciones_por_botella integer,
+  unidades_vendidas     bigint,
+  facturado             numeric
+)
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT
+    p.id, p.nombre, p.categoria, p.precio, p.costo,
+    p.costo_botella, p.porciones_por_botella,
+    COALESCE(v.unidades, 0)::bigint,
+    COALESCE(v.facturado, 0)
+  FROM products p
+  LEFT JOIN LATERAL (
+    SELECT SUM(si.cantidad) AS unidades,
+           SUM(si.cantidad * si.precio_unitario) AS facturado
+    FROM sale_items si
+    JOIN sales s ON s.id = si.sale_id AND s.estado = 'activa'
+    WHERE si.product_id = p.id
+      AND s.fecha > now() - (p_dias || ' days')::interval
+  ) v ON true
+  WHERE p.activo
+  ORDER BY
+    -- Primero lo que factura y NO tiene costo: ahí está todo el error de margen.
+    (COALESCE(p.costo, 0) = 0) DESC,
+    COALESCE(v.facturado, 0) DESC,
+    p.nombre;
+$$;

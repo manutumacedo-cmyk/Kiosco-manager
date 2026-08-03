@@ -22,7 +22,7 @@ export interface ProductDraft {
 }
 
 export type SortMode = "az" | "stock" | "reponer";
-export type TabMode = "listado" | "reposicion";
+export type TabMode = "listado" | "reposicion" | "costeo";
 export type PaymentMethod =
   | "efectivo"
   | "debito"
