@@ -106,6 +106,9 @@ export interface Sale {
   anulada_por: string | null;  // quién anuló la venta (B30)
   anulada_at: string | null;   // cuándo se anuló (B30)
   session_id: string | null;
+  // Si el turno del POS ya estaba cerrado al cobrar, la venta se reasigna al turno
+  // vigente y acá queda el original (B27). NULL en el caso normal.
+  session_id_original: string | null;
   created_at: string;
 }
 

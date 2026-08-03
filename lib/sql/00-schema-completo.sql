@@ -144,6 +144,9 @@ CREATE TABLE IF NOT EXISTS sales (
   client_request_id UUID,                 -- idempotencia de venta (B18): clave por intento de cobro
   anulada_por   TEXT,                     -- quién anuló la venta (B30)
   anulada_at    TIMESTAMPTZ,              -- cuándo se anuló (B30)
+  -- Si el turno del POS ya estaba cerrado al cobrar, la venta se reasigna al turno
+  -- vigente y acá queda el original (B27). NULL en el caso normal.
+  session_id_original UUID REFERENCES cash_sessions(id) ON DELETE SET NULL,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -365,6 +368,10 @@ DECLARE
   new_stock integer;
   v_product_exists boolean;
   v_nombre text;
+  v_estado text;
+  v_open_session uuid;
+  v_session_original uuid := NULL;
+  v_session_existe boolean := false;
 BEGIN
   -- Idempotencia (B18): si ya existe una venta con esta clave (reintento tras
   -- respuesta perdida por corte de red), devolverla sin re-insertar ni re-descontar stock.
@@ -389,8 +396,56 @@ BEGIN
     END IF;
   END IF;
 
-  INSERT INTO sales (metodo_pago, total, nota, moneda, pagado, vuelto, vuelto_moneda, tasa_cambio, session_id, client_request_id)
-  VALUES (p_metodo_pago, p_total, p_nota, COALESCE(p_moneda, 'UYU'), p_pagado, p_vuelto, p_vuelto_moneda, p_tasa_cambio, p_session_id, p_client_request_id)
+  -- B27: ¿el turno que mandó el POS sigue abierto? El POS cachea openSessionId al
+  -- montar y el turno puede haberse cerrado en el medio (relevo de cajero). Sin este
+  -- chequeo la venta se insertaba en un turno cerrado, cuyo snapshot ya está
+  -- congelado: plata cobrada que no aparecía en ningún turno.
+  --
+  -- FOR SHARE (no FOR NO KEY UPDATE): bloquea contra close_cash_session, pero NO
+  -- contra otras ventas — en hora pico no queremos serializar los cobros.
+  -- El lock de cash_sessions va ANTES que el de products, igual que en cancel_sale:
+  -- orden único sales → cash_sessions → products, si no hay deadlock.
+  -- OJO: los dos locks de cash_sessions de este bloque son FOR SHARE a propósito.
+  -- Es la única función que lockea DOS filas de la misma tabla; que sean
+  -- auto-compatibles es lo que evita un deadlock entre dos ventas que las tomen
+  -- en orden inverso. No subir el nivel de ninguno de los dos (B27b).
+  IF p_session_id IS NOT NULL THEN
+    SELECT estado INTO v_estado
+    FROM cash_sessions WHERE id = p_session_id FOR SHARE;
+    v_session_existe := FOUND;
+  END IF;
+
+  -- NULL cuenta igual que "cerrado": una venta sin turno es plata que no aparece
+  -- en ningún lado, que es exactamente lo que B27 viene a evitar (B27b).
+  IF NOT v_session_existe OR v_estado IS DISTINCT FROM 'abierta' THEN
+    -- El turno del POS ya cerró (o no existe, o no vino). La plata entra en el
+    -- vigente, que es el cajón donde el cobro realmente está entrando.
+    -- ORDER BY ... LIMIT 1 es cinturón: idx_one_open_session ya garantiza que hay
+    -- a lo sumo un turno abierto, pero sin LIMIT un SELECT INTO con varias filas
+    -- elegiría una arbitraria en silencio.
+    SELECT id INTO v_open_session
+    FROM cash_sessions WHERE estado = 'abierta'
+    ORDER BY apertura_at DESC LIMIT 1
+    FOR SHARE;
+
+    IF v_open_session IS NULL THEN
+      RAISE EXCEPTION 'No hay caja abierta. Abrí un turno para poder cobrar.';
+    END IF;
+
+    -- Solo dejamos rastro si el turno original existía: si no, sería un uuid
+    -- fantasma que violaría sales_session_id_original_fkey y el cajero vería un
+    -- error crudo de FK en pantalla.
+    IF v_session_existe THEN
+      v_session_original := p_session_id;
+    END IF;
+
+    p_session_id := v_open_session;
+  END IF;
+
+  INSERT INTO sales (metodo_pago, total, nota, moneda, pagado, vuelto, vuelto_moneda,
+                     tasa_cambio, session_id, client_request_id, session_id_original)
+  VALUES (p_metodo_pago, p_total, p_nota, COALESCE(p_moneda, 'UYU'), p_pagado, p_vuelto,
+          p_vuelto_moneda, p_tasa_cambio, p_session_id, p_client_request_id, v_session_original)
   RETURNING id INTO new_sale_id;
 
   FOR item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
@@ -463,6 +518,18 @@ BEGIN
     anulada_at = now()
   WHERE id = p_sale_id;
 
+  -- cash_sessions ANTES de products: orden único sales → cash_sessions → products,
+  -- el mismo que usa create_sale_atomic. Si se invierte, deadlock entre una venta
+  -- en curso y una anulación simultánea (B27).
+  --
+  -- FOR NO KEY UPDATE (no FOR UPDATE): excluye contra otro cancel_sale y contra el
+  -- UPDATE de close_cash_session, pero NO contra el FOR KEY SHARE que toma el
+  -- INSERT de sales por la FK — si no, deadlock con create_sale_atomic (B26b).
+  IF v_sale.session_id IS NOT NULL THEN
+    SELECT estado INTO v_session_estado
+    FROM cash_sessions WHERE id = v_sale.session_id FOR NO KEY UPDATE;
+  END IF;
+
   -- Devolver stock solo de product_id que existan en products, AGREGANDO por
   -- producto: si la venta tiene dos líneas del mismo product_id, un
   -- UPDATE ... FROM sale_items plano aplicaría una sola y devolvería de menos (B35).
@@ -476,26 +543,18 @@ BEGIN
   ) agg
   WHERE agg.product_id = p.id;
 
-  -- ¿El turno de esta venta ya cerró? Entonces su snapshot quedó viejo.
-  IF v_sale.session_id IS NOT NULL THEN
-    -- FOR NO KEY UPDATE (no FOR UPDATE): excluye contra otro cancel_sale y contra
-    -- el UPDATE de close_cash_session, pero NO conflictúa con el FOR KEY SHARE que
-    -- toma el INSERT de sales por la FK — si no, deadlock con create_sale_atomic (B26b).
-    SELECT estado INTO v_session_estado
-    FROM cash_sessions WHERE id = v_sale.session_id FOR NO KEY UPDATE;
+  -- El turno de esta venta ya cerró: su snapshot quedó viejo, acumular ajuste (B26).
+  IF v_session_estado = 'cerrada' THEN
+    UPDATE cash_sessions SET
+      ajuste_ventas_post_cierre       = ajuste_ventas_post_cierre       + COALESCE(v_sale.total, 0),
+      ajuste_efectivo_uyu_post_cierre = ajuste_efectivo_uyu_post_cierre + COALESCE(v_sale.mov_efectivo_uyu, 0),
+      ajuste_efectivo_brl_post_cierre = ajuste_efectivo_brl_post_cierre + COALESCE(v_sale.mov_efectivo_brl, 0),
+      ajuste_digital_post_cierre      = ajuste_digital_post_cierre      +
+        CASE WHEN v_sale.metodo_pago != 'efectivo' THEN COALESCE(v_sale.total, 0) ELSE 0 END,
+      cantidad_anuladas_post_cierre   = cantidad_anuladas_post_cierre   + 1
+    WHERE id = v_sale.session_id;
 
-    IF v_session_estado = 'cerrada' THEN
-      UPDATE cash_sessions SET
-        ajuste_ventas_post_cierre       = ajuste_ventas_post_cierre       + COALESCE(v_sale.total, 0),
-        ajuste_efectivo_uyu_post_cierre = ajuste_efectivo_uyu_post_cierre + COALESCE(v_sale.mov_efectivo_uyu, 0),
-        ajuste_efectivo_brl_post_cierre = ajuste_efectivo_brl_post_cierre + COALESCE(v_sale.mov_efectivo_brl, 0),
-        ajuste_digital_post_cierre      = ajuste_digital_post_cierre      +
-          CASE WHEN v_sale.metodo_pago != 'efectivo' THEN COALESCE(v_sale.total, 0) ELSE 0 END,
-        cantidad_anuladas_post_cierre   = cantidad_anuladas_post_cierre   + 1
-      WHERE id = v_sale.session_id;
-
-      v_ajustado := true;
-    END IF;
+    v_ajustado := true;
   END IF;
 
   SELECT COUNT(*) INTO v_items_count FROM sale_items WHERE sale_id = p_sale_id;
@@ -649,8 +708,13 @@ BEGIN
     v_categoria := NULL;
   END IF;
 
-  -- Lock de la sesión: evita registrar un movimiento mientras otro la cierra
-  PERFORM 1 FROM cash_sessions WHERE id = p_session_id AND estado = 'abierta' FOR UPDATE;
+  -- Lock de la sesión: evita registrar un movimiento mientras otro la cierra.
+  -- FOR NO KEY UPDATE, no FOR UPDATE: este último conflictúa con el FOR KEY SHARE
+  -- del chequeo de FK de todo INSERT en sales, así que registrar una salida de caja
+  -- bloqueaba los cobros de ese turno (B27b).
+  PERFORM 1 FROM cash_sessions
+   WHERE id = p_session_id AND estado = 'abierta'
+   FOR NO KEY UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'No hay turno abierto para registrar el movimiento';
   END IF;

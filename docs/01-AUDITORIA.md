@@ -323,7 +323,36 @@
 - **Impacto:** Stock devuelto sin ajuste de caja en el turno donde ya se contó y se llevó la plata. El
   historial de turnos miente.
 
-#### B27 · Venta en el cambio de turno = plata invisible 🟠
+#### B27 · Venta en el cambio de turno = plata invisible 🟠 — ✅ RESUELTO
+> **Update (2026-08-03):** `create_sale_atomic` ahora resuelve el turno **bajo lock** antes de
+> insertar. Si el turno que mandó el POS no está abierto (cerrado, inexistente o NULL), la venta va al
+> turno vigente — donde físicamente entra la plata, el cajón del cajero nuevo — y el original queda en
+> `sales.session_id_original`. Si no hay ningún turno abierto, se rechaza el cobro.
+>
+> El POS además refresca la sesión justo antes de cobrar (`app/ventas/nueva/page.tsx`) y avisa
+> "el turno cambió: esta venta entra en la caja de X". Prevención en el cliente, red de seguridad en
+> la RPC.
+>
+> Migraciones: `migration_b27_venta_cambio_turno.sql` + `migration_b27b_null_y_locks.sql`. La segunda
+> salió de una revisión con Opus: el guard estaba entero dentro de `IF p_session_id IS NOT NULL`, así
+> que con NULL la venta quedaba huérfana igual — el mismo bug entrando por otra puerta. También se
+> corrigió que un `session_id` inexistente reventaba con un error crudo de FK en pantalla.
+>
+> **Orden de locks unificado en todo el sistema: `sales → cash_sessions → products`.** `cancel_sale` se
+> reordenó para tomar `cash_sessions` antes que `products`, si no había deadlock entre una venta en
+> curso y una anulación simultánea. `create_sale_atomic` usa `FOR SHARE` (bloquea contra el cierre pero
+> no serializa dos cobros) y `register_cash_movement` bajó de `FOR UPDATE` a `FOR NO KEY UPDATE`, que
+> antes bloqueaba los cobros del turno cada vez que se registraba una salida de caja.
+>
+> Se eliminó `createSaleFallback` de `lib/services/sales.ts`: insertaba directo en `sales` salteándose
+> la resolución de turno (B27), la idempotencia (B18) y la atomicidad, y se disparaba con cualquier
+> error cuyo mensaje contuviera "function" y "does not exist".
+>
+> Verificado end-to-end: `session_id` NULL, turno inexistente, turno cerrado con otro abierto, y sin
+> ninguna caja abierta. Las 12 ventas con `session_id IS NULL` que hay en producción son del 10-11/06,
+> **anteriores al primer turno** (11/06 01:01) — el bug nunca llegó a dispararse.
+
+
 - **Dónde:** `openSessionId` cargado una sola vez al abrir el POS en
   [`app/ventas/nueva/page.tsx`](../app/ventas/nueva/page.tsx#L52) · se pasa en [línea 398](../app/ventas/nueva/page.tsx#L398).
 - **Qué pasa:** Si la caja se cierra mientras hay un carrito abierto, la venta se inserta con el
@@ -449,6 +478,23 @@ Salieron de auditar el fix de B26 con Opus. Son **pre-existentes**, no los intro
 - **Fix:** agregar por `product_id` con `SUM(cantidad)` antes del update. Incluido en
   `migration_b26b_locks.sql`. Verificado: venta con líneas de 2 + 1 unidades devuelve las 3.
 
+#### B37 · El upsert de `sale_combos` descartaba el error en silencio 🟡 — ✅ MITIGADO
+- **Dónde:** `createSale` en [`lib/services/sales.ts`](../lib/services/sales.ts).
+- **Qué pasa:** El `upsert` a `sale_combos` no chequeaba `error`. Si fallaba, la venta igual mostraba
+  "Venta guardada" y las filas de combos se perdían sin que nadie se enterara.
+- **Impacto:** Sin esas filas, los combos no cuentan en reportes ni en costos → el margen aparece
+  inflado. Plata mal informada, no plata perdida.
+- **Mitigación:** ahora se loguea a consola con el id de la venta. No se tira el error a propósito: la
+  venta ya está cobrada y anularla por esto sería peor. Falta una recuperación real (reintento o cola).
+
+#### B38 · `cancel_sale_own_turno` chequea el turno sin lock (TOCTOU) 🟡
+- **Dónde:** `cancel_sale_own_turno` en [`00-schema-completo.sql`](../lib/sql/00-schema-completo.sql).
+- **Qué pasa:** Lee `sales.session_id` y el turno abierto **sin lock**, y recién después llama a
+  `cancel_sale`. Entre el chequeo y la anulación, el turno puede cerrarse.
+- **Impacto:** En plata, ninguno — `cancel_sale` ve el turno cerrado y aplica el ajuste de B26. Lo que
+  se puede saltear en esa ventana es la regla de negocio "el cajero solo anula ventas de su turno
+  abierto". Prioridad baja.
+
 #### B36 · La RLS está abierta: se puede reescribir un arqueo ya cerrado 🟠
 - **Dónde:** políticas `FOR ALL USING (true) WITH CHECK (true)` en todas las tablas,
   [`00-schema-completo.sql`](../lib/sql/00-schema-completo.sql) · relacionado con B5.
@@ -492,7 +538,13 @@ Lo que **más urge** para que funcione en la vida real:
 > seguro de venta** (B18) ✅, **movimientos de caja entrada/salida** (B32) ✅, **anulación por cajero
 > + auditoría** (B33, B30) ✅ y **anulación tras el cierre** (B26) ✅.
 >
-> **Todos los 🔴 de esta pasada están cerrados** (2026-08-03). Lo que queda son 🟠/🟡: B19, B21, B22,
-> B27, B30, B31, y los dos que salieron de revisar B26 — B35 ✅ y **B36** (RLS abierta, va con B5).
-> El más relevante para la operación es **B27** (venta en el cambio de turno = plata invisible), que es
-> el hermano de B26: mismo problema de frontera de turno, pero al abrir en vez de al cerrar.
+> **Todos los 🔴 de esta pasada están cerrados** (2026-08-03), y también los dos bugs de frontera de
+> turno: **B26** (anular tras el cierre) ✅ y **B27** (venta en el cambio de turno) ✅. Con eso, toda
+> venta cae siempre en un turno abierto y toda anulación posterior queda registrada como ajuste.
+>
+> De paso quedó un **orden de locks unificado** (`sales → cash_sessions → products`) que antes no
+> existía, y que era la causa de dos deadlocks latentes entre cobrar y anular.
+>
+> Pendientes: B19, B21, B22, B30, B31, y los que salieron de las dos revisiones con Opus —
+> B35 ✅, B37 ✅ mitigado, **B36** (RLS abierta, va con B5) y **B38** (TOCTOU sin impacto en plata).
+> El más relevante es **B36**: hoy el arqueo es a prueba de errores, no a prueba de manipulación.
