@@ -358,6 +358,28 @@ export default function NuevaVentaPage() {
     setSaving(true);
 
     try {
+      // B27: el turno se pudo haber cerrado desde que se abrió el POS (relevo de
+      // cajero a mitad de la jornada). Refrescamos justo antes de cobrar para que
+      // la venta caiga en el turno vigente y no en uno cerrado, cuyo snapshot ya
+      // está congelado. La RPC valida esto igual del lado del servidor — acá lo
+      // que ganamos es avisarle al cajero en vez de que se entere después.
+      let sessionIdParaVenta = openSessionId;
+      try {
+        const sesionActual = await getOpenSession();
+        if (!sesionActual) {
+          toast.error("No hay caja abierta. Abrí un turno para poder cobrar.");
+          setSaving(false);
+          return;
+        }
+        if (sesionActual.id !== openSessionId) {
+          sessionIdParaVenta = sesionActual.id;
+          setOpenSessionId(sesionActual.id);
+          toast.warning(`El turno cambió: esta venta entra en la caja de ${sesionActual.cajero}`);
+        }
+      } catch {
+        // Si falla el chequeo (red), seguimos: la RPC es la red de seguridad real.
+      }
+
       const saleItems: Array<{
         product_id: string;
         cantidad: number;
@@ -446,7 +468,7 @@ export default function NuevaVentaPage() {
         vuelto: pago.vuelto,
         vuelto_moneda: pago.vuelto_moneda,
         tasa_cambio: exchangeRate,
-        session_id: openSessionId,
+        session_id: sessionIdParaVenta,
         client_request_id: idemKeyRef.current ?? crypto.randomUUID(),
         items: saleItems,
         combos: combosVendidos.length > 0 ? combosVendidos : undefined,

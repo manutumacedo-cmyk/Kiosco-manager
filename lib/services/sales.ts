@@ -53,13 +53,12 @@ export async function createSale(params: {
     })),
   });
 
-  if (error) {
-    // Si la función no existe, fallback al método no-atómico
-    if (error.message.includes("function") && error.message.includes("does not exist")) {
-      return createSaleFallback(params);
-    }
-    throw new Error(error.message);
-  }
+  // Sin fallback a propósito: el camino manual que había acá insertaba directo en
+  // `sales` sin ninguno de los guards de la RPC — se saltaba la resolución de turno
+  // (B27), la idempotencia (B18) y la atomicidad. Encima se disparaba con cualquier
+  // error cuyo mensaje contuviera "function" y "does not exist", no solo con la RPC
+  // ausente. Si la RPC no está, hay que arreglar la DB, no cobrar sin red.
+  if (error) throw new Error(error.message);
 
   const saleId = data as string;
 
@@ -67,7 +66,7 @@ export async function createSale(params: {
   // upsert idempotente (B18): si esto es un reintento que devolvió una venta ya
   // existente, no duplica filas (unique sale_combos(sale_id, combo_id)).
   if (params.combos && params.combos.length > 0) {
-    await supabase.from("sale_combos").upsert(
+    const { error: comboError } = await supabase.from("sale_combos").upsert(
       params.combos.map((c) => ({
         sale_id: saleId,
         combo_id: c.combo_id,
@@ -78,94 +77,16 @@ export async function createSale(params: {
       })),
       { onConflict: "sale_id,combo_id", ignoreDuplicates: true }
     );
+
+    // No se tira el error: la venta YA está cobrada y anularla por esto sería peor.
+    // Pero tampoco se traga en silencio como antes (B37): sin estas filas, los
+    // combos no cuentan en reportes ni en costos, y el margen queda inflado.
+    if (comboError) {
+      console.error("[createSale] venta", saleId, "guardada SIN combos:", comboError.message);
+    }
   }
 
   return saleId;
-}
-
-/** Fallback no-atómico (para cuando la función RPC no está creada aún) */
-async function createSaleFallback(params: {
-  metodo_pago: string;
-  total: number;
-  nota: string | null;
-  moneda: string;
-  pagado: number | null;
-  vuelto: number | null;
-  vuelto_moneda?: 'UYU' | 'BRL' | null;
-  tasa_cambio?: number | null;
-  session_id?: string | null;
-  client_request_id?: string | null;
-  items: Array<{
-    product_id: string;
-    cantidad: number;
-    precio_unitario: number;
-    stock_actual: number;
-  }>;
-  combos?: Array<{
-    combo_id: string;
-    combo_nombre: string;
-    cantidad: number;
-    precio_unitario: number;
-    costo_unitario: number;
-  }>;
-}): Promise<string> {
-  const { data: sale, error: e1 } = await supabase
-    .from("sales")
-    .insert({
-      metodo_pago: params.metodo_pago,
-      total: params.total,
-      nota: params.nota,
-      moneda: params.moneda,
-      pagado: params.pagado,
-      vuelto: params.vuelto,
-      vuelto_moneda: params.vuelto_moneda ?? null,
-      tasa_cambio: params.tasa_cambio ?? null,
-      session_id: params.session_id ?? null,
-      client_request_id: params.client_request_id ?? null,
-    })
-    .select("id")
-    .single();
-
-  if (e1) throw new Error(e1.message);
-  const sale_id = sale.id as string;
-
-  const { error: e2 } = await supabase.from("sale_items").insert(
-    params.items.map((it) => ({
-      sale_id,
-      product_id: it.product_id,
-      cantidad: it.cantidad,
-      precio_unitario: it.precio_unitario,
-    }))
-  );
-
-  if (e2) throw new Error(e2.message);
-
-  for (const it of params.items) {
-    const nuevo = Math.max(0, it.stock_actual - it.cantidad);
-    const { error: e3 } = await supabase
-      .from("products")
-      .update({ stock: nuevo })
-      .eq("id", it.product_id);
-
-    if (e3) throw new Error(e3.message);
-  }
-
-  // Guardar combos vendidos en sale_combos (para reportes) — upsert idempotente (B18)
-  if (params.combos && params.combos.length > 0) {
-    await supabase.from("sale_combos").upsert(
-      params.combos.map((c) => ({
-        sale_id,
-        combo_id: c.combo_id,
-        combo_nombre: c.combo_nombre,
-        cantidad: c.cantidad,
-        precio_unitario: c.precio_unitario,
-        costo_unitario: c.costo_unitario,
-      })),
-      { onConflict: "sale_id,combo_id", ignoreDuplicates: true }
-    );
-  }
-
-  return sale_id;
 }
 
 export async function fetchTodaySales(): Promise<Sale[]> {
@@ -239,7 +160,7 @@ export async function cancelSaleOwnTurno(saleId: string, anuladaPor: string): Pr
 export async function fetchSalesBySession(sessionId: string): Promise<Sale[]> {
   const { data, error } = await supabase
     .from("sales")
-    .select("id,fecha,metodo_pago,total,nota,moneda,estado,anulada_por,anulada_at,session_id,created_at")
+    .select("id,fecha,metodo_pago,total,nota,moneda,estado,anulada_por,anulada_at,session_id,session_id_original,created_at")
     .eq("session_id", sessionId)
     .order("fecha", { ascending: false });
 
@@ -267,6 +188,8 @@ export async function fetchSalesByDateRange(
       estado,
       anulada_por,
       anulada_at,
+      session_id,
+      session_id_original,
       created_at,
       sale_items (
         product_id,
@@ -305,6 +228,7 @@ export async function fetchSalesByDateRange(
     anulada_por: sale.anulada_por ?? null,
     anulada_at: sale.anulada_at ?? null,
     session_id: sale.session_id ?? null,
+    session_id_original: sale.session_id_original ?? null,
     created_at: sale.created_at,
     items: sale.sale_items?.map((item: any) => ({
       product_id: item.product_id,
