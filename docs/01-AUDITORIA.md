@@ -296,7 +296,25 @@
 - **Impacto:** El cierre espera pesos que no están y no cuenta los reales que sí están. Descuadre en
   ambas monedas.
 
-#### B26 · Anular después del cierre desincroniza el snapshot del turno 🔴
+#### B26 · Anular después del cierre desincroniza el snapshot del turno 🔴 — ✅ RESUELTO
+> **Update (2026-08-03):** resuelto con ajuste trazable, no bloqueando la anulación. El snapshot del
+> cierre queda INTACTO porque es el arqueo de esa noche; las anulaciones posteriores se acumulan en
+> columnas nuevas de `cash_sessions` (`ajuste_ventas_post_cierre`, `ajuste_efectivo_uyu/brl_post_cierre`,
+> `ajuste_digital_post_cierre`, `cantidad_anuladas_post_cierre`) y el total real se calcula restando.
+> Como `diferencia_uyu/brl` son `GENERATED` sobre `total_efectivo_*`, que el ajuste no toca, el arqueo
+> no puede alterarse por ningún camino del código.
+>
+> Migraciones: `migration_b26_ajuste_post_cierre.sql` + `migration_b26b_locks.sql`. La segunda salió de
+> una revisión con Opus que encontró dos agujeros en la primera: (1) `close_cash_session` chequeaba
+> `estado='abierta'` sin tomar lock, así que una anulación concurrente podía colarse entre el `SUM` y el
+> `UPDATE` y perder el ajuste — dejando B26 abierto igual; (2) el `FOR UPDATE` sobre `cash_sessions`
+> deadlockeaba con el `FOR KEY SHARE` que toma el `INSERT` de `sales` por la FK. Ambos cerrados con
+> `FOR NO KEY UPDATE` y lock temprano en el cierre. Verificado end-to-end contra la base real.
+>
+> También se eliminó `cancelSaleFallback` de `lib/services/sales.ts`: no era atómico, no acumulaba el
+> ajuste y llamaba a `increment_stock` con nombres de parámetro equivocados, así que dejaba la venta
+> anulada y el stock sin devolver.
+
 - **Dónde:** [`cancel_sale`](../lib/sql/00-schema-completo.sql#L317) no verifica si la venta pertenece
   a un turno cerrado · snapshot congelado en [`close_cash_session`](../lib/sql/00-schema-completo.sql#L381) ·
   UI de anulación en [`app/reportes/ventas/page.tsx`](../app/reportes/ventas/page.tsx#L87).
@@ -417,6 +435,33 @@
 
 ---
 
+## 🔎 HALLAZGOS DE LA REVISIÓN DE B26 (2026-08-03)
+
+Salieron de auditar el fix de B26 con Opus. Son **pre-existentes**, no los introdujo ese cambio.
+
+#### B35 · Anular una venta con dos líneas del mismo producto devolvía stock de menos 🟡 — ✅ RESUELTO
+- **Dónde:** `cancel_sale` en [`00-schema-completo.sql`](../lib/sql/00-schema-completo.sql).
+- **Qué pasa:** El `UPDATE products ... FROM sale_items` aplicaba **una sola fila** por producto target
+  (comportamiento de `UPDATE ... FROM` en Postgres cuando varias filas de la fuente matchean el mismo
+  destino, y cuál gana es indeterminado). Una venta con el mismo `product_id` en dos líneas devolvía
+  solo el stock de una.
+- **Impacto:** Mercadería real que quedaba fuera del inventario sin que nadie lo notara.
+- **Fix:** agregar por `product_id` con `SUM(cantidad)` antes del update. Incluido en
+  `migration_b26b_locks.sql`. Verificado: venta con líneas de 2 + 1 unidades devuelve las 3.
+
+#### B36 · La RLS está abierta: se puede reescribir un arqueo ya cerrado 🟠
+- **Dónde:** políticas `FOR ALL USING (true) WITH CHECK (true)` en todas las tablas,
+  [`00-schema-completo.sql`](../lib/sql/00-schema-completo.sql) · relacionado con B5.
+- **Qué pasa:** Con la anon key (que viaja al browser) se puede hacer
+  `UPDATE cash_sessions SET total_efectivo_uyu = ...` sobre un turno cerrado. Como `diferencia_*` son
+  `GENERATED`, el descuadre se recalcula solo y el arqueo queda reescrito sin rastro.
+- **Impacto:** Las protecciones de B26 valen para los caminos del código, no contra la base. El arqueo
+  es a prueba de errores, no a prueba de manipulación.
+- **Fix sugerido:** políticas que nieguen `UPDATE` sobre `cash_sessions` con `estado = 'cerrada'`, y
+  mover las escrituras críticas a funciones `SECURITY DEFINER`. Va junto con B5.
+
+---
+
 ## 💡 OPORTUNIDADES DE MEJORA (no son bugs, suman a las prioridades)
 
 | ID | Mejora | Prioridad de negocio | Cerrado en |
@@ -444,6 +489,10 @@ Lo que **más urge** para que funcione en la vida real:
 
 > **Pasada pre-producción (2026-06-01) — ver B18–B33.** Bloqueantes del primer uso real, por urgencia:
 > el **cuadre cross-moneda** (B23, B24, B25) ✅, el **arqueo real al cierre** (B28) ✅, el **reintento
-> seguro de venta** (B18) ✅, **movimientos de caja entrada/salida** (B32) ✅ y **anulación por cajero
-> + auditoría** (B33, B30) ✅. Crítico restante sin resolver: **B26** (anular tras el cierre
-> desincroniza el snapshot del turno) — es el único 🔴 que queda de esta pasada.
+> seguro de venta** (B18) ✅, **movimientos de caja entrada/salida** (B32) ✅, **anulación por cajero
+> + auditoría** (B33, B30) ✅ y **anulación tras el cierre** (B26) ✅.
+>
+> **Todos los 🔴 de esta pasada están cerrados** (2026-08-03). Lo que queda son 🟠/🟡: B19, B21, B22,
+> B27, B30, B31, y los dos que salieron de revisar B26 — B35 ✅ y **B36** (RLS abierta, va con B5).
+> El más relevante para la operación es **B27** (venta en el cambio de turno = plata invisible), que es
+> el hermano de B26: mismo problema de frontera de turno, pero al abrir en vez de al cerrar.

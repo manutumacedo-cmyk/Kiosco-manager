@@ -87,8 +87,12 @@ export default function HistorialVentasClient({ username }: { username: string }
   async function handleCancelSale(saleId: string) {
     setCancelingSale(saleId);
     try {
-      await cancelSale(saleId, username);
-      toast.success("✅ Venta anulada y stock restaurado");
+      const res = await cancelSale(saleId, username);
+      toast.success(
+        res.ajuste_post_cierre
+          ? "✅ Venta anulada. El turno ya estaba cerrado: se registró como ajuste posterior."
+          : "✅ Venta anulada y stock restaurado"
+      );
       setShowCancelModal(null);
       loadSales(); // Recargar lista
     } catch (err) {

@@ -73,6 +73,16 @@ CREATE TABLE IF NOT EXISTS cash_sessions (
   diferencia_brl      NUMERIC(10,2) GENERATED ALWAYS AS (
                         efectivo_contado_brl - (monto_inicial_brl + COALESCE(total_efectivo_brl, 0) + COALESCE(total_entradas_brl, 0) - COALESCE(total_salidas_brl, 0))
                       ) STORED,
+  -- Anulaciones POSTERIORES al cierre (B26). Los totales de arriba son el arqueo de
+  -- esa noche y no se reescriben: el total real es snapshot − ajuste. Como las
+  -- diferencia_* son GENERATED sobre total_efectivo_*, que el ajuste no toca, ningún
+  -- camino del código puede alterar el arqueo. Ojo: eso vale para el código, no
+  -- contra la base — con la RLS abierta de hoy se puede editar a mano (ver B36).
+  ajuste_ventas_post_cierre       NUMERIC NOT NULL DEFAULT 0,
+  ajuste_efectivo_uyu_post_cierre NUMERIC NOT NULL DEFAULT 0,
+  ajuste_efectivo_brl_post_cierre NUMERIC NOT NULL DEFAULT 0,
+  ajuste_digital_post_cierre      NUMERIC NOT NULL DEFAULT 0,
+  cantidad_anuladas_post_cierre   INTEGER NOT NULL DEFAULT 0,
   created_at          TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
 
@@ -422,20 +432,28 @@ END;
 $$;
 
 -- 4) Cancelar venta y devolver stock (atómico). p_anulada_por registra autoría (B30).
+-- Si la venta pertenece a un turno YA CERRADO, acumula el ajuste en cash_sessions
+-- en la misma transacción (B26): el snapshot del cierre queda intacto porque es el
+-- arqueo de esa noche, y el total real se calcula restando el ajuste.
 DROP FUNCTION IF EXISTS cancel_sale(uuid);
 CREATE OR REPLACE FUNCTION cancel_sale(p_sale_id uuid, p_anulada_por text DEFAULT NULL)
 RETURNS json
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  v_sale_estado text;
-  v_items_count integer;
+  v_sale            sales%ROWTYPE;
+  v_session_estado  text;
+  v_items_count     integer;
+  v_ajustado        boolean := false;
 BEGIN
-  SELECT estado INTO v_sale_estado FROM sales WHERE id = p_sale_id;
-  IF v_sale_estado IS NULL THEN
+  -- FOR UPDATE: bloquea la fila para que dos anulaciones simultáneas de la misma
+  -- venta no puedan pasar las dos por el chequeo de estado.
+  SELECT * INTO v_sale FROM sales WHERE id = p_sale_id FOR UPDATE;
+
+  IF v_sale.id IS NULL THEN
     RAISE EXCEPTION 'Venta no encontrada';
   END IF;
-  IF v_sale_estado = 'anulada' THEN
+  IF v_sale.estado = 'anulada' THEN
     RAISE EXCEPTION 'La venta ya está anulada';
   END IF;
 
@@ -445,15 +463,49 @@ BEGIN
     anulada_at = now()
   WHERE id = p_sale_id;
 
-  -- Devolver stock solo de product_id que existan en products
+  -- Devolver stock solo de product_id que existan en products, AGREGANDO por
+  -- producto: si la venta tiene dos líneas del mismo product_id, un
+  -- UPDATE ... FROM sale_items plano aplicaría una sola y devolvería de menos (B35).
   UPDATE products p
-  SET stock = p.stock + si.cantidad
-  FROM sale_items si
-  WHERE si.sale_id = p_sale_id AND si.product_id = p.id;
+  SET stock = p.stock + agg.cant
+  FROM (
+    SELECT product_id, SUM(cantidad) AS cant
+    FROM sale_items
+    WHERE sale_id = p_sale_id
+    GROUP BY product_id
+  ) agg
+  WHERE agg.product_id = p.id;
+
+  -- ¿El turno de esta venta ya cerró? Entonces su snapshot quedó viejo.
+  IF v_sale.session_id IS NOT NULL THEN
+    -- FOR NO KEY UPDATE (no FOR UPDATE): excluye contra otro cancel_sale y contra
+    -- el UPDATE de close_cash_session, pero NO conflictúa con el FOR KEY SHARE que
+    -- toma el INSERT de sales por la FK — si no, deadlock con create_sale_atomic (B26b).
+    SELECT estado INTO v_session_estado
+    FROM cash_sessions WHERE id = v_sale.session_id FOR NO KEY UPDATE;
+
+    IF v_session_estado = 'cerrada' THEN
+      UPDATE cash_sessions SET
+        ajuste_ventas_post_cierre       = ajuste_ventas_post_cierre       + COALESCE(v_sale.total, 0),
+        ajuste_efectivo_uyu_post_cierre = ajuste_efectivo_uyu_post_cierre + COALESCE(v_sale.mov_efectivo_uyu, 0),
+        ajuste_efectivo_brl_post_cierre = ajuste_efectivo_brl_post_cierre + COALESCE(v_sale.mov_efectivo_brl, 0),
+        ajuste_digital_post_cierre      = ajuste_digital_post_cierre      +
+          CASE WHEN v_sale.metodo_pago != 'efectivo' THEN COALESCE(v_sale.total, 0) ELSE 0 END,
+        cantidad_anuladas_post_cierre   = cantidad_anuladas_post_cierre   + 1
+      WHERE id = v_sale.session_id;
+
+      v_ajustado := true;
+    END IF;
+  END IF;
 
   SELECT COUNT(*) INTO v_items_count FROM sale_items WHERE sale_id = p_sale_id;
 
-  RETURN json_build_object('success', true, 'sale_id', p_sale_id, 'items_restored', v_items_count);
+  RETURN json_build_object(
+    'success', true,
+    'sale_id', p_sale_id,
+    'items_restored', v_items_count,
+    'ajuste_post_cierre', v_ajustado
+  );
 END;
 $$;
 
@@ -506,9 +558,14 @@ DECLARE
   v_entradas_uyu     NUMERIC;
   v_entradas_brl     NUMERIC;
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM cash_sessions WHERE id = p_session_id AND estado = 'abierta'
-  ) THEN
+  -- El lock va ACÁ, antes de sumar: serializa contra cancel_sale (B26b). Antes era
+  -- un IF NOT EXISTS sin lock, y una anulación concurrente podía colarse entre el
+  -- SUM y el UPDATE final, cerrando el turno con la venta contada y ajuste = 0.
+  PERFORM 1 FROM cash_sessions
+   WHERE id = p_session_id AND estado = 'abierta'
+   FOR NO KEY UPDATE;
+
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'Sesión no encontrada o ya cerrada';
   END IF;
 

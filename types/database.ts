@@ -69,6 +69,13 @@ export interface CashSession {
   total_entradas_brl: number | null;    // snapshot al cierre: entradas de plata en reales (B32)
   diferencia_uyu: number | null;        // contado − esperado (pesos); >0 sobra, <0 falta
   diferencia_brl: number | null;        // contado − esperado (reales)
+  // Anulaciones POSTERIORES al cierre (B26). El snapshot de arriba es el arqueo de
+  // esa noche y no se reescribe nunca; el total real es snapshot − ajuste.
+  ajuste_ventas_post_cierre: number;
+  ajuste_efectivo_uyu_post_cierre: number;
+  ajuste_efectivo_brl_post_cierre: number;
+  ajuste_digital_post_cierre: number;
+  cantidad_anuladas_post_cierre: number;
   created_at: string;
 }
 
