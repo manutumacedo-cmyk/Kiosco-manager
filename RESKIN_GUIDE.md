@@ -75,7 +75,8 @@
 // Header
 <div className="p-6 space-y-4">
   // Cambiar a:
-<div className="min-h-screen bg-[var(--deep-dark)] p-6 space-y-6">
+// Usar min-h-full, NO min-h-screen: el scroll lo maneja el <main> del layout.
+<div className="min-h-full bg-[var(--deep-dark)] p-6 space-y-6">
 
 // Título
 <h1 className="text-2xl font-semibold">Productos</h1>

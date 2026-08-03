@@ -525,7 +525,7 @@ export default function NuevaVentaPage() {
 
   if (sessionChecked && openSessionId === null) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-[var(--deep-dark)] gap-6 p-6">
+      <div className="min-h-full flex flex-col items-center justify-center bg-[var(--deep-dark)] gap-6 p-6">
         <div className="text-6xl">🔒</div>
         <div className="text-center space-y-2">
           <p className="text-xl font-bold text-[var(--text-primary)]">No hay turno abierto.</p>
@@ -542,7 +542,10 @@ export default function NuevaVentaPage() {
   }
 
   return (
-    <div className="h-full flex flex-col bg-[var(--deep-dark)] overflow-hidden">
+    // El POS es de altura fija a propósito: las columnas scrollean por dentro.
+    // El min-h evita que en pantallas bajas se aplaste hasta ser inusable:
+    // por debajo de ese piso scrollea el shell.
+    <div className="h-full min-h-[34rem] flex flex-col bg-[var(--deep-dark)] overflow-hidden">
 
       {/* ── HEADER ── */}
       <div className="flex items-center gap-4 px-4 py-2.5 border-b border-[var(--slate-gray)] bg-[var(--carbon-gray)]/50 flex-shrink-0">

@@ -11,7 +11,7 @@ export default async function UsuariosPage() {
   const users = await listUsers();
 
   return (
-    <div className="min-h-screen bg-[var(--deep-dark)] p-6 space-y-6">
+    <div className="min-h-full bg-[var(--deep-dark)] p-6 space-y-6">
       <div className="flex items-center gap-3">
         <Link href="/">
           <Image src="/logo.png" alt="24 SIETE" width={40} height={40} className="cursor-pointer" />

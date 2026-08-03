@@ -31,7 +31,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased h-full overflow-hidden flex flex-col`}
       >
         <AppNav />
-        <main className="flex-1 min-h-0">
+        {/* Único contenedor scrolleable de la app: la nav queda fija arriba y
+            el contenido se mueve acá abajo. Las páginas NO manejan overflow. */}
+        <main className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
           <Providers>{children}</Providers>
         </main>
         <BrandWatermark />

@@ -1,8 +1,12 @@
 @import "tailwindcss";
 
 html {
-  zoom: 0.8;
-  height: calc(100vh / 0.8);
+  /* Densidad de la app. Tailwind mide en rem, así que esto escala texto Y
+     espaciados a la vez. Reemplaza el viejo `zoom: 0.8`, que rompía las
+     medidas vh y obligaba a un calc() compensatorio en la altura. */
+  font-size: 15px;
+  height: 100vh;
+  height: 100dvh; /* dvh: descuenta las barras del navegador en tablet */
 }
 
 /* ========================================

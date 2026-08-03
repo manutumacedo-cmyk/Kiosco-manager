@@ -41,7 +41,7 @@ export default async function Home() {
   const items = SECONDARY.filter((i) => i.roles.includes(role));
 
   return (
-    <div className="min-h-screen bg-[var(--deep-dark)] px-6 py-10 md:py-14">
+    <div className="min-h-full bg-[var(--deep-dark)] px-6 py-10 md:py-14">
       <div className="mx-auto w-full max-w-3xl">
 
         {/* Marca */}
