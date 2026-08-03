@@ -31,126 +31,62 @@ export interface TurnoConStats {
   coberturaCosto: number;
 }
 
+interface StatsRow {
+  session_id: string;
+  ingresos: number;
+  cantidad_ventas: number;
+  cantidad_anuladas: number;
+  costo_mercaderia: number;
+  salidas_uyu: number;
+  facturado_sin_costo: number;
+  cantidad_reasignadas: number;
+}
+
 /**
  * Turnos con sus totales, más recientes primero. Incluye el turno abierto si lo hay.
  *
- * Hace 5 queries y agrega en memoria en vez de una vista SQL: son pocas filas
- * (un turno por noche) y así el cálculo de ganancia vive en un solo lugar del
- * código, no duplicado entre TS y SQL.
+ * La agregación la hace la RPC `turnos_con_stats` en el servidor, no el cliente.
+ * La primera versión traía todas las ventas y todos los sale_items y sumaba en
+ * memoria, lo que significaba un `.in("sale_id", [...])` con 2.553 uuids: una URL
+ * de ~95 KB que el servidor rechaza, y la lista quedaba vacía.
  */
 export async function fetchTurnosConStats(limit = 60): Promise<TurnoConStats[]> {
-  const { data: sessionsData, error: e1 } = await supabase
-    .from("cash_sessions")
-    .select("*")
-    .order("apertura_at", { ascending: false })
-    .limit(limit);
-
-  if (e1) throw new Error(e1.message);
-  const sessions = (sessionsData ?? []) as CashSession[];
-  if (sessions.length === 0) return [];
-
-  const sessionIds = sessions.map((s) => s.id);
-
-  const [salesRes, outflowsRes] = await Promise.all([
+  const [sessionsRes, statsRes] = await Promise.all([
     supabase
-      .from("sales")
-      .select("id, session_id, total, estado, session_id_original")
-      .in("session_id", sessionIds),
-    supabase
-      .from("cash_outflows")
-      .select("session_id, monto, moneda, tipo")
-      .in("session_id", sessionIds)
-      .eq("tipo", "salida")
-      .eq("moneda", "UYU"),
+      .from("cash_sessions")
+      .select("*")
+      .order("apertura_at", { ascending: false })
+      .limit(limit),
+    supabase.rpc("turnos_con_stats", { p_limit: limit }),
   ]);
 
-  if (salesRes.error) throw new Error(salesRes.error.message);
-  if (outflowsRes.error) throw new Error(outflowsRes.error.message);
+  if (sessionsRes.error) throw new Error(sessionsRes.error.message);
+  if (statsRes.error) throw new Error(statsRes.error.message);
 
-  const sales = salesRes.data ?? [];
-  const activas = sales.filter((s) => s.estado === "activa");
-  const activasIds = activas.map((s) => s.id);
-
-  // Costo de mercadería: items sueltos vía products.costo, líneas de combo vía
-  // sale_combos.costo_unitario (los combos no son productos, ver B2).
-  const [itemsRes, combosRes, productsRes] = await Promise.all([
-    activasIds.length > 0
-      ? supabase
-          .from("sale_items")
-          .select("sale_id, product_id, cantidad, precio_unitario")
-          .in("sale_id", activasIds)
-      : Promise.resolve({ data: [], error: null }),
-    activasIds.length > 0
-      ? supabase.from("sale_combos").select("sale_id, cantidad, costo_unitario").in("sale_id", activasIds)
-      : Promise.resolve({ data: [], error: null }),
-    supabase.from("products").select("id, costo"),
-  ]);
-
-  if (itemsRes.error) throw new Error(itemsRes.error.message);
-  if (combosRes.error) throw new Error(combosRes.error.message);
-  if (productsRes.error) throw new Error(productsRes.error.message);
-
-  const costoProducto = new Map<string, number>(
-    (productsRes.data ?? []).map((p: { id: string; costo: number | null }) => [p.id, Number(p.costo ?? 0)])
+  const sessions = (sessionsRes.data ?? []) as CashSession[];
+  const stats = new Map<string, StatsRow>(
+    ((statsRes.data ?? []) as StatsRow[]).map((r) => [r.session_id, r])
   );
 
-  // sale_id → costo total de esa venta, y sale_id → facturado de líneas sin costo.
-  // Lo segundo es lo que permite avisar que la ganancia está incompleta en vez de
-  // mostrar un número inflado como si fuera exacto.
-  const costoPorVenta = new Map<string, number>();
-  const sinCostoPorVenta = new Map<string, number>();
-
-  for (const it of itemsRes.data ?? []) {
-    const costoUnit = costoProducto.get(it.product_id);
-    const cantidad = Number(it.cantidad || 0);
-
-    costoPorVenta.set(it.sale_id, (costoPorVenta.get(it.sale_id) ?? 0) + (costoUnit ?? 0) * cantidad);
-
-    // Ojo: las líneas de combo referencian el id del combo, que no está en products
-    // (B2). Ésas no cuentan como "sin costo" — su costo viene de sale_combos.
-    const esProducto = costoProducto.has(it.product_id);
-    if (esProducto && !costoUnit) {
-      const facturado = cantidad * Number(it.precio_unitario || 0);
-      sinCostoPorVenta.set(it.sale_id, (sinCostoPorVenta.get(it.sale_id) ?? 0) + facturado);
-    }
-  }
-
-  for (const c of combosRes.data ?? []) {
-    const costo = Number(c.costo_unitario || 0) * Number(c.cantidad || 0);
-    costoPorVenta.set(c.sale_id, (costoPorVenta.get(c.sale_id) ?? 0) + costo);
-  }
-
-  const salidasPorSesion = new Map<string, number>();
-  for (const o of outflowsRes.data ?? []) {
-    salidasPorSesion.set(o.session_id, (salidasPorSesion.get(o.session_id) ?? 0) + Number(o.monto || 0));
-  }
-
   return sessions.map((session) => {
-    const delTurno = sales.filter((s) => s.session_id === session.id);
-    const activasDelTurno = delTurno.filter((s) => s.estado === "activa");
+    const r = stats.get(session.id);
 
-    const ingresos = activasDelTurno.reduce((acc, s) => acc + Number(s.total || 0), 0);
-    const costoMercaderia = activasDelTurno.reduce(
-      (acc, s) => acc + (costoPorVenta.get(s.id) ?? 0),
-      0
-    );
-    const salidasUyu = salidasPorSesion.get(session.id) ?? 0;
+    const ingresos = Number(r?.ingresos ?? 0);
+    const costoMercaderia = Number(r?.costo_mercaderia ?? 0);
+    const salidasUyu = Number(r?.salidas_uyu ?? 0);
+    const facturadoSinCosto = Number(r?.facturado_sin_costo ?? 0);
     const ganancia = ingresos - costoMercaderia - salidasUyu;
-    const facturadoSinCosto = activasDelTurno.reduce(
-      (acc, s) => acc + (sinCostoPorVenta.get(s.id) ?? 0),
-      0
-    );
 
     return {
       session,
       ingresos,
-      cantidadVentas: activasDelTurno.length,
-      cantidadAnuladas: delTurno.length - activasDelTurno.length,
+      cantidadVentas: Number(r?.cantidad_ventas ?? 0),
+      cantidadAnuladas: Number(r?.cantidad_anuladas ?? 0),
       costoMercaderia,
       salidasUyu,
       ganancia,
       margenPorcentaje: ingresos > 0 ? (ganancia / ingresos) * 100 : 0,
-      cantidadReasignadas: delTurno.filter((s) => s.session_id_original != null).length,
+      cantidadReasignadas: Number(r?.cantidad_reasignadas ?? 0),
       facturadoSinCosto,
       coberturaCosto: ingresos > 0 ? Math.max(0, 1 - facturadoSinCosto / ingresos) : 1,
     };

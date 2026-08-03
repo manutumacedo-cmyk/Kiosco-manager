@@ -28,6 +28,7 @@ export default function HistorialVentasClient({ username }: { username: string }
 
   const [turnos, setTurnos] = useState<TurnoConStats[]>([]);
   const [loadingTurnos, setLoadingTurnos] = useState(true);
+  const [errorTurnos, setErrorTurnos] = useState<string | null>(null);
   const [turnoSel, setTurnoSel] = useState<string | null>(null);
 
   const [dateFilter, setDateFilter] = useState<DateFilter>("today");
@@ -39,13 +40,18 @@ export default function HistorialVentasClient({ username }: { username: string }
 
   async function loadTurnos() {
     setLoadingTurnos(true);
+    setErrorTurnos(null);
     try {
       const data = await fetchTurnosConStats();
       setTurnos(data);
       // Arranca en el turno más reciente, que es lo que uno quiere mirar.
       setTurnoSel((actual) => actual ?? data[0]?.session.id ?? null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Error al cargar turnos");
+      // Se guarda el error además del toast: si no, un fallo de carga se ve igual
+      // que "no hay turnos", que es justo lo que pasó la primera vez.
+      const msg = err instanceof Error ? err.message : "Error al cargar turnos";
+      setErrorTurnos(msg);
+      toast.error(msg);
     } finally {
       setLoadingTurnos(false);
     }
@@ -190,12 +196,20 @@ export default function HistorialVentasClient({ username }: { username: string }
             La jornada cruza la medianoche, así que cada turno se nombra por el día en
             que <strong>abrió</strong>. Elegí uno para ver sus ventas.
           </div>
-          <TurnoSelector
-            turnos={turnos}
-            seleccionado={turnoSel}
-            onSelect={setTurnoSel}
-            loading={loadingTurnos}
-          />
+          {errorTurnos ? (
+            <div className="data-card neon-outline-red">
+              <div className="text-[var(--error)] font-bold">No se pudieron cargar los turnos</div>
+              <div className="text-xs text-[var(--text-secondary)] mt-1 font-mono">{errorTurnos}</div>
+              <button onClick={loadTurnos} className="cyber-button mt-4">Reintentar</button>
+            </div>
+          ) : (
+            <TurnoSelector
+              turnos={turnos}
+              seleccionado={turnoSel}
+              onSelect={setTurnoSel}
+              loading={loadingTurnos}
+            />
+          )}
         </>
       ) : (
       <div className="data-card neon-outline-cyan">
