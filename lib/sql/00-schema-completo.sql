@@ -26,6 +26,12 @@ CREATE TABLE IF NOT EXISTS products (
   categoria    TEXT,                              -- Bebidas | Alimento | Vasos | Otros
   precio       NUMERIC(10,2) NOT NULL DEFAULT 0,
   costo        NUMERIC(10,2) NOT NULL DEFAULT 0,  -- para ganancia limpia (venta - costo)
+  -- Origen del costo cuando el producto se sirve de una botella (tragos): se guardan
+  -- los dos datos para que al cambiar el precio del proveedor se toque uno solo y se
+  -- recalcule. `costo` sigue siendo la única columna que leen los reportes (B39).
+  costo_botella         NUMERIC,
+  porciones_por_botella INTEGER,
+  costo_actualizado_at  TIMESTAMPTZ,
   stock        INTEGER NOT NULL DEFAULT 0,
   stock_minimo INTEGER NOT NULL DEFAULT 0,
   activo       BOOLEAN NOT NULL DEFAULT TRUE,
@@ -874,4 +880,45 @@ AS $$
   LEFT JOIN costo_combos cc ON cc.session_id = t.id
   LEFT JOIN salidas sa     ON sa.session_id = t.id
   GROUP BY t.id;
+$$;
+
+-- 8) productos_para_costear: catalogo ordenado por impacto para cargar costos (B39).
+-- Lo que mas factura y NO tiene costo va primero: ahi esta todo el error de margen.
+-- products.costo_botella / porciones_por_botella guardan el origen del calculo para
+-- los tragos servidos de botella; products.costo sigue siendo lo que leen los reportes.
+CREATE OR REPLACE FUNCTION productos_para_costear(p_dias integer DEFAULT 30)
+RETURNS TABLE (
+  id                    uuid,
+  nombre                text,
+  categoria             text,
+  precio                numeric,
+  costo                 numeric,
+  costo_botella         numeric,
+  porciones_por_botella integer,
+  unidades_vendidas     bigint,
+  facturado             numeric
+)
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT
+    p.id, p.nombre, p.categoria, p.precio, p.costo,
+    p.costo_botella, p.porciones_por_botella,
+    COALESCE(v.unidades, 0)::bigint,
+    COALESCE(v.facturado, 0)
+  FROM products p
+  LEFT JOIN LATERAL (
+    SELECT SUM(si.cantidad) AS unidades,
+           SUM(si.cantidad * si.precio_unitario) AS facturado
+    FROM sale_items si
+    JOIN sales s ON s.id = si.sale_id AND s.estado = 'activa'
+    WHERE si.product_id = p.id
+      AND s.fecha > now() - (p_dias || ' days')::interval
+  ) v ON true
+  WHERE p.activo
+  ORDER BY
+    -- Primero lo que factura y NO tiene costo: ahí está todo el error de margen.
+    (COALESCE(p.costo, 0) = 0) DESC,
+    COALESCE(v.facturado, 0) DESC,
+    p.nombre;
 $$;

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import ReposicionTab from "./ReposicionTab";
+import CosteoTab from "./CosteoTab";
 import type { Product, ProductDraft, SortMode, TabMode, CategoryType } from "@/types";
 import { fetchCategories, createCategory } from "@/lib/services/categories";
 import {
@@ -270,6 +271,15 @@ export default function ProductosClient({ role }: { role: "admin" | "cajero" }) 
             >
               Reposición
             </button>
+            {/* Solo admin: son datos de costos y márgenes (B39). */}
+            {isAdmin && (
+              <button
+                className={`cyber-button ${tab === "costeo" ? "neon-outline-cyan" : ""}`}
+                onClick={() => setTab("costeo")}
+              >
+                Costos
+              </button>
+            )}
           </div>
         </div>
 
@@ -289,7 +299,9 @@ export default function ProductosClient({ role }: { role: "admin" | "cajero" }) 
       </div>
 
       {/* CONTENIDO */}
-      {tab === "reposicion" ? (
+      {tab === "costeo" && isAdmin ? (
+        <CosteoTab />
+      ) : tab === "reposicion" ? (
         <ReposicionTab products={items.map((p) => ({ id: p.id, nombre: p.nombre }))} />
       ) : (
         <>

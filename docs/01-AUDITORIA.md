@@ -499,8 +499,16 @@ Salieron de auditar el fix de B26 con Opus. Son **pre-existentes**, no los intro
 - **Mitigación (2026-08-03):** el historial por turnos marca la ganancia como **estimada** cuando menos
   del 90% del ingreso tiene costo conocido, y muestra cuánto se facturó sin costo
   (`TurnoConStats.coberturaCosto` / `facturadoSinCosto`). Mejor avisar que mentir.
-- **Fix real:** cargar los costos, empezando por la categoría "Vasos", que es la que más factura.
-  Mientras tanto, ningún número de margen del sistema sirve para decidir precios.
+- **Herramienta (2026-08-03):** pestaña **Costos** en `/productos` (solo admin), en
+  `app/productos/CosteoTab.tsx`. La lista viene ordenada por impacto vía
+  `productos_para_costear()`: lo que más factura y no tiene costo va primero, porque cargar los 11
+  primeros ya cubre dos tercios de la facturación. Para los tragos hay calculadora
+  **botella ÷ porciones** (se guardan `costo_botella` y `porciones_por_botella`, así al cambiar el
+  precio del proveedor se toca un solo número). Arriba, una barra muestra qué porcentaje de la
+  facturación tiene costo conocido — es el número que dice si los márgenes del sistema ya sirven.
+  Verificado: cargar solo Whisky Jack (botella $2.400 ÷ 16 = $150) sube la cobertura de 20% a 36%.
+- **Falta:** cargar los costos de verdad. La herramienta está; el dato lo tiene que poner el dueño.
+  Hasta entonces, ningún margen del sistema sirve para decidir precios.
 
 #### B38 · `cancel_sale_own_turno` chequea el turno sin lock (TOCTOU) 🟡
 - **Dónde:** `cancel_sale_own_turno` en [`00-schema-completo.sql`](../lib/sql/00-schema-completo.sql).
