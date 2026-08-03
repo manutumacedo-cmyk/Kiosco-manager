@@ -41,7 +41,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--deep-dark)] flex items-center justify-center p-6">
+    <div className="min-h-full bg-[var(--deep-dark)] flex items-center justify-center p-6">
       <div className="w-full max-w-md">
         {/* Logo y título */}
         <div className="text-center mb-8">

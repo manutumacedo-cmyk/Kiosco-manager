@@ -103,7 +103,7 @@ export default function HistorialVentasClient({ username }: { username: string }
   const totalIngresos = ventasActivas.reduce((acc, s) => acc + Number(s.total), 0);
 
   return (
-    <div className="min-h-screen bg-[var(--deep-dark)] p-6 space-y-6">
+    <div className="min-h-full bg-[var(--deep-dark)] p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">

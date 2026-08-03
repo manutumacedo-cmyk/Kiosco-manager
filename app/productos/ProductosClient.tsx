@@ -223,7 +223,7 @@ export default function ProductosClient({ role }: { role: "admin" | "cajero" }) 
   const colCount = isAdmin ? (editMode ? 8 : 7) : (editMode ? 6 : 5);
 
   return (
-    <div className="h-full overflow-y-auto bg-[var(--deep-dark)] p-6 space-y-6">
+    <div className="min-h-full bg-[var(--deep-dark)] p-6 space-y-6">
       <ConfirmDialog
         open={!!deleteTarget}
         title="Eliminar producto"
