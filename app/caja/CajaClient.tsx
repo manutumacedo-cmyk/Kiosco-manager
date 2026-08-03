@@ -827,18 +827,30 @@ export default function CajaClient({
                     )}
                   </div>
                   <div className="text-right shrink-0 space-y-0.5">
-                    <p className="font-bold neon-text-cyan">$ {fmt(s.total_ventas ?? 0)}</p>
+                    {/* Totales YA NETOS de anulaciones posteriores al cierre (B26).
+                        El snapshot crudo es el arqueo de esa noche y no se toca; acá
+                        se muestra lo que realmente quedó vendido. */}
+                    <p className="font-bold neon-text-cyan">
+                      $ {fmt((s.total_ventas ?? 0) - (s.ajuste_ventas_post_cierre ?? 0))}
+                    </p>
+                    {(s.cantidad_anuladas_post_cierre ?? 0) > 0 && (
+                      <p className="text-[var(--warning)] text-xs">
+                        {s.cantidad_anuladas_post_cierre} anulada
+                        {s.cantidad_anuladas_post_cierre === 1 ? "" : "s"} tras el cierre · −${" "}
+                        {fmt(s.ajuste_ventas_post_cierre ?? 0)}
+                      </p>
+                    )}
                     <p className="text-[var(--text-secondary)] text-xs">
-                      $ {fmt(s.total_efectivo_uyu ?? 0)} UYU
+                      $ {fmt((s.total_efectivo_uyu ?? 0) - (s.ajuste_efectivo_uyu_post_cierre ?? 0))} UYU
                     </p>
                     {(s.total_efectivo_brl ?? 0) > 0 && (
                       <p className="text-[var(--text-secondary)] text-xs">
-                        R$ {fmtBRL(s.total_efectivo_brl ?? 0)} BRL
+                        R$ {fmtBRL((s.total_efectivo_brl ?? 0) - (s.ajuste_efectivo_brl_post_cierre ?? 0))} BRL
                       </p>
                     )}
                     {(s.total_digital ?? 0) > 0 && (
                       <p className="text-[var(--text-secondary)] text-xs">
-                        $ {fmt(s.total_digital ?? 0)} dig
+                        $ {fmt((s.total_digital ?? 0) - (s.ajuste_digital_post_cierre ?? 0))} dig
                       </p>
                     )}
                     {((s.total_salidas_uyu ?? 0) > 0 || (s.total_salidas_brl ?? 0) > 0) && (

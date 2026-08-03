@@ -185,26 +185,38 @@ export async function fetchTodaySales(): Promise<Sale[]> {
   return (data ?? []) as Sale[];
 }
 
+export interface CancelSaleResult {
+  items_restored: number;
+  /** true si la venta era de un turno ya cerrado y se acumuló un ajuste (B26). */
+  ajuste_post_cierre: boolean;
+}
+
 /**
- * Cancela una venta y devuelve el stock de los productos
- * usando la función RPC atómica cancel_sale. Registra quién anuló (B30).
+ * Cancela una venta y devuelve el stock de los productos usando la función RPC
+ * atómica cancel_sale. Registra quién anuló (B30). Si el turno de la venta ya
+ * estaba cerrado, la RPC acumula el ajuste en cash_sessions sin tocar el arqueo
+ * original (B26) y lo informa en `ajuste_post_cierre`.
  */
-export async function cancelSale(saleId: string, anuladaPor?: string | null): Promise<void> {
+export async function cancelSale(
+  saleId: string,
+  anuladaPor?: string | null
+): Promise<CancelSaleResult> {
   const { data, error } = await supabase.rpc("cancel_sale", {
     p_sale_id: saleId,
     p_anulada_por: anuladaPor ?? null,
   });
 
-  if (error) {
-    // Si la función RPC no existe, usar fallback manual
-    if (error.message.includes("function") && error.message.includes("does not exist")) {
-      return cancelSaleFallback(saleId, anuladaPor ?? null);
-    }
-    throw new Error(error.message);
-  }
+  // Sin fallback a propósito: el camino manual que había acá no era atómico, no
+  // acumulaba el ajuste post-cierre (B26) y llamaba a increment_stock con los
+  // nombres de parámetro equivocados, así que dejaba la venta anulada y el stock
+  // sin devolver. Si la RPC no está, hay que arreglar la DB — no descuadrar la
+  // caja en silencio.
+  if (error) throw new Error(error.message);
 
-  // Log de éxito
-  console.log("[cancelSale] Venta anulada:", data);
+  return {
+    items_restored: data?.items_restored ?? 0,
+    ajuste_post_cierre: data?.ajuste_post_cierre ?? false,
+  };
 }
 
 /**
@@ -233,64 +245,6 @@ export async function fetchSalesBySession(sessionId: string): Promise<Sale[]> {
 
   if (error) throw new Error(error.message);
   return (data ?? []) as Sale[];
-}
-
-/**
- * Fallback manual para cancelar venta (sin RPC)
- * IMPORTANTE: No es atómico, puede tener race conditions
- */
-async function cancelSaleFallback(saleId: string, anuladaPor: string | null): Promise<void> {
-  // 1. Verificar que la venta existe y está activa
-  const { data: sale, error: saleError } = await supabase
-    .from("sales")
-    .select("id, estado")
-    .eq("id", saleId)
-    .single();
-
-  if (saleError) throw new Error(`Venta no encontrada: ${saleError.message}`);
-  if (sale.estado === "anulada") throw new Error("La venta ya está anulada");
-
-  // 2. Obtener items de la venta
-  const { data: items, error: itemsError } = await supabase
-    .from("sale_items")
-    .select("product_id, cantidad")
-    .eq("sale_id", saleId);
-
-  if (itemsError) throw new Error(`Error obteniendo items: ${itemsError.message}`);
-
-  // 3. Marcar venta como anulada
-  const { error: updateError } = await supabase
-    .from("sales")
-    .update({ estado: "anulada", anulada_por: anuladaPor, anulada_at: new Date().toISOString() })
-    .eq("id", saleId);
-
-  if (updateError) throw new Error(`Error anulando venta: ${updateError.message}`);
-
-  // 4. Devolver stock de cada producto
-  for (const item of items || []) {
-    const { error: stockError } = await supabase.rpc("increment_stock", {
-      product_id: item.product_id,
-      quantity: item.cantidad,
-    });
-
-    // Si no existe la función RPC, usar update directo
-    if (stockError && stockError.message.includes("does not exist")) {
-      const { data: product } = await supabase
-        .from("products")
-        .select("stock")
-        .eq("id", item.product_id)
-        .single();
-
-      if (product) {
-        await supabase
-          .from("products")
-          .update({ stock: product.stock + item.cantidad })
-          .eq("id", item.product_id);
-      }
-    } else if (stockError) {
-      console.error(`Error restaurando stock de ${item.product_id}:`, stockError);
-    }
-  }
 }
 
 /**
