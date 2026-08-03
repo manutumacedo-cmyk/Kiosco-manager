@@ -171,10 +171,14 @@ export async function fetchSalesBySession(sessionId: string): Promise<Sale[]> {
 /**
  * Obtiene ventas por rango de fechas con sus items
  */
+export type SaleConItems = Sale & {
+  items?: Array<{ product_id: string; cantidad: number; precio_unitario: number; nombre: string }>;
+};
+
 export async function fetchSalesByDateRange(
   startDate: Date,
   endDate: Date
-): Promise<Array<Sale & { items?: Array<{ product_id: string; cantidad: number; precio_unitario: number; nombre: string }> }>> {
+): Promise<SaleConItems[]> {
   // Query 1: ventas + items sin join a products (no hay FK intencional — ver schema B2)
   const { data, error } = await supabase
     .from("sales")
@@ -203,8 +207,52 @@ export async function fetchSalesByDateRange(
 
   if (error) throw new Error(`Error obteniendo ventas: ${error.message}`);
 
-  // Query 2: nombres de productos para lookup en TypeScript
-  // Los IDs de componentes de combos no van a matchear → "Producto eliminado" (comportamiento esperado)
+  return hidratarItems(data);
+}
+
+/**
+ * Ventas de UN TURNO, con items. El turno es la unidad real de la operación: la
+ * jornada cruza la medianoche, así que filtrar por fecha de calendario la parte
+ * al medio (B1/B27). Incluye las ventas reasignadas desde un turno cerrado.
+ */
+export async function fetchSalesBySessionWithItems(
+  sessionId: string
+): Promise<SaleConItems[]> {
+  const { data, error } = await supabase
+    .from("sales")
+    .select(`
+      id,
+      fecha,
+      metodo_pago,
+      total,
+      nota,
+      moneda,
+      estado,
+      anulada_por,
+      anulada_at,
+      session_id,
+      session_id_original,
+      created_at,
+      sale_items (
+        product_id,
+        cantidad,
+        precio_unitario
+      )
+    `)
+    .eq("session_id", sessionId)
+    .order("fecha", { ascending: false });
+
+  if (error) throw new Error(`Error obteniendo ventas del turno: ${error.message}`);
+
+  return hidratarItems(data);
+}
+
+/**
+ * Resuelve los nombres de producto en TypeScript en vez de con un join: sale_items
+ * no tiene FK a products a propósito (las líneas de combo referencian el id del
+ * combo, ver B2), así que esos ids no matchean y quedan como "Producto eliminado".
+ */
+async function hidratarItems(data: any): Promise<SaleConItems[]> {
   const productIds = [...new Set(
     (data || []).flatMap((s: any) => (s.sale_items || []).map((i: any) => i.product_id as string))
   )];
@@ -213,7 +261,6 @@ export async function fetchSalesByDateRange(
     : { data: [] };
   const productMap = new Map((productsData || []).map((p: any) => [p.id as string, p.nombre as string]));
 
-  // Transformar datos
   return (data || []).map((sale: any) => ({
     id: sale.id,
     fecha: sale.fecha,

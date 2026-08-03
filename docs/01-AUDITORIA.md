@@ -487,6 +487,21 @@ Salieron de auditar el fix de B26 con Opus. Son **pre-existentes**, no los intro
 - **Mitigación:** ahora se loguea a consola con el id de la venta. No se tira el error a propósito: la
   venta ya está cobrada y anularla por esto sería peor. Falta una recuperación real (reintento o cola).
 
+#### B39 · El 84% del catálogo no tiene costo cargado: toda "ganancia" está inflada 🟠
+- **Dónde:** `products.costo` en producción. **No es un bug de código** — es un dato faltante que hace
+  que todo cálculo de ganancia/margen del sistema mienta hacia arriba.
+- **Qué pasa:** 78 de 93 productos activos tienen `costo` en 0 o NULL, y son justamente los que más
+  facturan. Últimos 30 días: Caipirinha Limón $57.750 facturados con costo 0, Whisky Jack $52.550 con
+  costo 0, Whisky Red $30.250, Jager $27.450. La categoría "Vasos" entera está sin costear.
+- **Impacto:** La ganancia calculada da casi igual a los ingresos (márgenes de 82%, 84%, hasta 100%),
+  y afecta a `calcularGananciaReal()` en `reports.ts`, al dashboard y al historial por turnos. Un
+  número que parece real, no lo es, y se usa para decidir.
+- **Mitigación (2026-08-03):** el historial por turnos marca la ganancia como **estimada** cuando menos
+  del 90% del ingreso tiene costo conocido, y muestra cuánto se facturó sin costo
+  (`TurnoConStats.coberturaCosto` / `facturadoSinCosto`). Mejor avisar que mentir.
+- **Fix real:** cargar los costos, empezando por la categoría "Vasos", que es la que más factura.
+  Mientras tanto, ningún número de margen del sistema sirve para decidir precios.
+
 #### B38 · `cancel_sale_own_turno` chequea el turno sin lock (TOCTOU) 🟡
 - **Dónde:** `cancel_sale_own_turno` en [`00-schema-completo.sql`](../lib/sql/00-schema-completo.sql).
 - **Qué pasa:** Lee `sales.session_id` y el turno abierto **sin lock**, y recién después llama a

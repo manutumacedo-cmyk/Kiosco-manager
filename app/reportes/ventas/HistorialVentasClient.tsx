@@ -3,26 +3,33 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useState } from "react";
-import type { Sale } from "@/types";
-import { fetchSalesByDateRange, cancelSale } from "@/lib/services/sales";
+import type { SaleConItems } from "@/lib/services/sales";
+import {
+  fetchSalesByDateRange,
+  fetchSalesBySessionWithItems,
+  cancelSale,
+} from "@/lib/services/sales";
+import { fetchTurnosConStats, etiquetaTurno, type TurnoConStats } from "@/lib/services/turnos";
+import TurnoSelector from "./TurnoSelector";
 import { useToast } from "@/components/ui/Toast";
 
 type DateFilter = "today" | "week" | "month" | "custom";
-
-interface SaleWithItems extends Sale {
-  items?: Array<{
-    product_id: string;
-    cantidad: number;
-    precio_unitario: number;
-    nombre: string;
-  }>;
-}
+/** El turno es el eje por defecto: la jornada cruza la medianoche, así que el
+ *  calendario parte los turnos al medio. El rango de fechas queda como secundario,
+ *  para mirar un mes entero. */
+type Modo = "turno" | "rango";
 
 export default function HistorialVentasClient({ username }: { username: string }) {
   const toast = useToast();
 
+  const [modo, setModo] = useState<Modo>("turno");
   const [loading, setLoading] = useState(true);
-  const [sales, setSales] = useState<SaleWithItems[]>([]);
+  const [sales, setSales] = useState<SaleConItems[]>([]);
+
+  const [turnos, setTurnos] = useState<TurnoConStats[]>([]);
+  const [loadingTurnos, setLoadingTurnos] = useState(true);
+  const [turnoSel, setTurnoSel] = useState<string | null>(null);
+
   const [dateFilter, setDateFilter] = useState<DateFilter>("today");
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
@@ -30,12 +37,35 @@ export default function HistorialVentasClient({ username }: { username: string }
   const [cancelingSale, setCancelingSale] = useState<string | null>(null);
   const [showCancelModal, setShowCancelModal] = useState<string | null>(null);
 
+  async function loadTurnos() {
+    setLoadingTurnos(true);
+    try {
+      const data = await fetchTurnosConStats();
+      setTurnos(data);
+      // Arranca en el turno más reciente, que es lo que uno quiere mirar.
+      setTurnoSel((actual) => actual ?? data[0]?.session.id ?? null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al cargar turnos");
+    } finally {
+      setLoadingTurnos(false);
+    }
+  }
+
   async function loadSales() {
+    if (modo === "turno" && !turnoSel) {
+      setSales([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
-      const { start, end } = getDateRange();
-      const data = await fetchSalesByDateRange(start, end);
-      setSales(data);
+      if (modo === "turno") {
+        setSales(await fetchSalesBySessionWithItems(turnoSel!));
+      } else {
+        const { start, end } = getDateRange();
+        setSales(await fetchSalesByDateRange(start, end));
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al cargar ventas");
     } finally {
@@ -81,8 +111,12 @@ export default function HistorialVentasClient({ username }: { username: string }
   }
 
   useEffect(() => {
+    loadTurnos();
+  }, []);
+
+  useEffect(() => {
     loadSales();
-  }, [dateFilter, customStartDate, customEndDate]);
+  }, [modo, turnoSel, dateFilter, customStartDate, customEndDate]);
 
   async function handleCancelSale(saleId: string) {
     setCancelingSale(saleId);
@@ -94,7 +128,9 @@ export default function HistorialVentasClient({ username }: { username: string }
           : "✅ Venta anulada y stock restaurado"
       );
       setShowCancelModal(null);
-      loadSales(); // Recargar lista
+      // Los totales del turno cambian con la anulación, así que se recargan los dos.
+      loadSales();
+      loadTurnos();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al anular venta");
     } finally {
@@ -105,6 +141,7 @@ export default function HistorialVentasClient({ username }: { username: string }
   const ventasActivas = sales.filter(s => s.estado === "activa");
   const ventasAnuladas = sales.filter(s => s.estado === "anulada");
   const totalIngresos = ventasActivas.reduce((acc, s) => acc + Number(s.total), 0);
+  const turnoActual = turnos.find((t) => t.session.id === turnoSel);
 
   return (
     <div className="min-h-full bg-[var(--deep-dark)] p-6 space-y-6">
@@ -117,12 +154,50 @@ export default function HistorialVentasClient({ username }: { username: string }
           <h1 className="text-3xl font-bold neon-text-cyan">HISTORIAL DE VENTAS</h1>
           <div className="text-2xl">📋</div>
         </div>
-        <button onClick={loadSales} className="cyber-button" disabled={loading}>
+        <button
+          onClick={() => { loadSales(); loadTurnos(); }}
+          className="cyber-button"
+          disabled={loading}
+        >
           {loading ? "Cargando..." : "Refrescar"}
         </button>
       </div>
 
-      {/* Filtros de fecha */}
+      {/* Eje del historial: turno (default) o rango de fechas */}
+      <div className="flex gap-2">
+        {([
+          { id: "turno" as Modo, label: "Por turno", icon: "🌙" },
+          { id: "rango" as Modo, label: "Por fechas", icon: "📅" },
+        ]).map((m) => (
+          <button
+            key={m.id}
+            onClick={() => setModo(m.id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm uppercase tracking-wide transition-all ${
+              modo === m.id
+                ? "neon-outline-cyan bg-[var(--cyan-glow)] text-[var(--neon-cyan)]"
+                : "border border-[var(--slate-gray)] text-[var(--text-secondary)] hover:border-[var(--neon-cyan)]"
+            }`}
+          >
+            <span>{m.icon}</span>
+            <span>{m.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {modo === "turno" ? (
+        <>
+          <div className="text-xs text-[var(--text-muted)]">
+            La jornada cruza la medianoche, así que cada turno se nombra por el día en
+            que <strong>abrió</strong>. Elegí uno para ver sus ventas.
+          </div>
+          <TurnoSelector
+            turnos={turnos}
+            seleccionado={turnoSel}
+            onSelect={setTurnoSel}
+            loading={loadingTurnos}
+          />
+        </>
+      ) : (
       <div className="data-card neon-outline-cyan">
         <div className="text-[var(--text-secondary)] text-sm uppercase tracking-wide mb-4">
           Filtrar por período
@@ -173,22 +248,77 @@ export default function HistorialVentasClient({ username }: { username: string }
           </div>
         )}
       </div>
+      )}
 
       {/* Resumen */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="data-card neon-outline-cyan">
-          <div className="text-[var(--text-muted)] text-xs uppercase">Total ventas activas</div>
+          <div className="text-[var(--text-muted)] text-xs uppercase">Ventas activas</div>
           <div className="text-3xl font-bold mt-2 neon-text-cyan">{ventasActivas.length}</div>
         </div>
         <div className="data-card neon-outline-cyan">
           <div className="text-[var(--text-muted)] text-xs uppercase">Ingresos</div>
           <div className="text-3xl font-bold mt-2 neon-text-cyan">${totalIngresos.toLocaleString("es-UY", { maximumFractionDigits: 0 })}</div>
         </div>
+        {/* La ganancia solo tiene sentido por turno: descuenta las salidas de caja,
+            que se registran contra un turno, no contra un rango de fechas. */}
+        {modo === "turno" && turnoActual ? (
+          <div className="data-card neon-outline-cyan">
+            <div className="text-[var(--text-muted)] text-xs uppercase">Ganancia del turno</div>
+            <div
+              className={`text-3xl font-bold mt-2 ${
+                turnoActual.ganancia >= 0 ? "text-[var(--success)]" : "text-[var(--error)]"
+              }`}
+            >
+              ${turnoActual.ganancia.toLocaleString("es-UY", { maximumFractionDigits: 0 })}
+            </div>
+            <div className="text-[10px] text-[var(--text-muted)] mt-1">
+              costo ${turnoActual.costoMercaderia.toLocaleString("es-UY", { maximumFractionDigits: 0 })}
+              {turnoActual.salidasUyu > 0 && (
+                <> · salidas ${turnoActual.salidasUyu.toLocaleString("es-UY", { maximumFractionDigits: 0 })}</>
+              )}
+            </div>
+            {turnoActual.coberturaCosto < 0.9 && (
+              <div className="text-[10px] text-[var(--warning)] mt-1.5 leading-snug">
+                ⚠ Estimada: $
+                {turnoActual.facturadoSinCosto.toLocaleString("es-UY", { maximumFractionDigits: 0 })} de
+                lo facturado es de productos sin costo cargado. La ganancia real es menor.
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="data-card">
+            <div className="text-[var(--text-muted)] text-xs uppercase">Ganancia</div>
+            <div className="text-sm text-[var(--text-muted)] mt-3">
+              Se calcula por turno — cambiá a “Por turno” para verla.
+            </div>
+          </div>
+        )}
         <div className="data-card neon-outline-red">
           <div className="text-[var(--text-muted)] text-xs uppercase">Ventas anuladas</div>
           <div className="text-3xl font-bold mt-2 text-[var(--error)]">{ventasAnuladas.length}</div>
         </div>
       </div>
+
+      {/* Contexto del turno elegido */}
+      {modo === "turno" && turnoActual && (
+        <div className="data-card border-l-2 border-[var(--neon-magenta)]">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="font-bold text-[var(--neon-magenta)]">
+              {etiquetaTurno(turnoActual.session).dia} {etiquetaTurno(turnoActual.session).fecha}
+            </span>
+            <span className="font-mono text-sm text-[var(--text-secondary)]">
+              {etiquetaTurno(turnoActual.session).rango}
+            </span>
+            <span className="text-sm text-[var(--text-secondary)]">· {turnoActual.session.cajero}</span>
+          </div>
+          {turnoActual.session.notas_cierre && (
+            <div className="text-xs text-[var(--text-secondary)] mt-2 italic">
+              {turnoActual.session.notas_cierre}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Lista de ventas */}
       {loading ? (
@@ -198,7 +328,9 @@ export default function HistorialVentasClient({ username }: { username: string }
       ) : sales.length === 0 ? (
         <div className="data-card text-center py-12">
           <div className="text-4xl mb-4">📭</div>
-          <div className="text-[var(--text-secondary)]">No hay ventas en este período</div>
+          <div className="text-[var(--text-secondary)]">
+            {modo === "turno" ? "Este turno no tuvo ventas" : "No hay ventas en este período"}
+          </div>
         </div>
       ) : (
         <div className="space-y-3">
@@ -253,6 +385,12 @@ export default function HistorialVentasClient({ username }: { username: string }
                         {sale.anulada_at && (
                           <> · {new Date(sale.anulada_at).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</>
                         )}
+                      </div>
+                    )}
+                    {/* Se cobró acá pero el carrito venía de un turno ya cerrado (B27) */}
+                    {sale.session_id_original && (
+                      <div className="text-[10px] text-[var(--warning)] mt-0.5" title="El turno se cerró mientras el carrito estaba abierto, así que la venta entró en el turno vigente">
+                        ↪ reasignada de un turno anterior
                       </div>
                     )}
                   </div>
