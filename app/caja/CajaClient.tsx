@@ -9,6 +9,7 @@ import {
   openCashSession,
   closeCashSession,
   getClosedSessions,
+  getLastClosedSession,
   registerCashMovement,
   fetchSessionOutflows,
   type SessionTotals,
@@ -32,6 +33,37 @@ function fmt(n: number) {
 function fmtBRL(n: number) {
   return new Intl.NumberFormat("es-UY", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 }
+/**
+ * Etiqueta del movimiento de efectivo de una venta, para las listas del turno.
+ *
+ * `sales.total` está SIEMPRE en UYU: es la suma de precios del carrito. `moneda` solo dice
+ * con qué pagó el cliente. Mostrar `R$ {total}` porque `moneda === 'BRL'` (lo que se hacía
+ * antes, B41) daba "R$ 300" para una venta de $300 en la que al cajón entraron R$40 — el
+ * cajero sumaba esa columna y nunca le cerraba contra el esperado en reales.
+ *
+ * Ahora el importe siempre se muestra en pesos, y al lado va el movimiento REAL de cada
+ * cajón cuando existe: lo que entró en reales y, si el vuelto se dio en la otra moneda,
+ * lo que salió en pesos.
+ */
+function ImporteVenta({ sale, className }: { sale: Sale; className?: string }) {
+  const brl = Number(sale.mov_efectivo_brl ?? 0);
+  const uyu = Number(sale.mov_efectivo_uyu ?? 0);
+  const partes: string[] = [];
+  if (brl !== 0) partes.push(`${brl > 0 ? "+" : "−"} R$ ${fmtBRL(Math.abs(brl))}`);
+  if (brl !== 0 && uyu !== 0) partes.push(`${uyu > 0 ? "+" : "−"} $ ${fmt(Math.abs(uyu))}`);
+
+  return (
+    <>
+      <span className={className}>$ {fmt(sale.total)}</span>
+      {partes.length > 0 && (
+        <span className="text-[var(--neon-magenta)] text-xs ml-2 font-mono font-normal">
+          {partes.join(" ")}
+        </span>
+      )}
+    </>
+  );
+}
+
 function fmtDate(iso: string) {
   return new Intl.DateTimeFormat("es-UY", {
     day: "2-digit", month: "2-digit", year: "numeric",
@@ -56,6 +88,9 @@ export default function CajaClient({
   const [montoInicial, setMontoInicial] = useState("");
   const [montoInicialBrl, setMontoInicialBrl] = useState("");
   const [opening, setOpening] = useState(false);
+  // Último turno cerrado (de cualquier cajero, porque el cajón es uno solo). Sirve para
+  // mostrar con cuánto cerró y calcular cuánto se retiró antes de esta apertura. Ver B40.
+  const [ultimoCierre, setUltimoCierre] = useState<CashSession | null>(null);
 
   const [notas, setNotas] = useState("");
   const [contadoUyu, setContadoUyu] = useState("");
@@ -98,6 +133,13 @@ export default function CajaClient({
       } else {
         setOutflows([]);
         setTurnoSales([]);
+        // Contexto del cierre anterior para el form de apertura (B40). NO se precarga el
+        // valor: la recaudación se retira del cajón después de cerrar, así que el contado
+        // anterior NO es el fondo de este turno. Imponerlo daría faltantes falsos enormes
+        // (se simuló contra 29 turnos reales: hasta −$23.700). Lo que sí falta hoy es
+        // dejar rastro de cuánto se retiró — eso se calcula y se muestra al tipear.
+        const ultimo = await getLastClosedSession();
+        setUltimoCierre(ultimo);
         setPageState("cerrada");
       }
       // Cajero only sees their own sessions; admin sees all
@@ -192,8 +234,12 @@ export default function CajaClient({
       setContadoBrl("");
       setArqueoConfirmado(false);
       setPageState("cerrada");
-      const history = await getClosedSessions(10, role === "cajero" ? userId : undefined);
+      const [history, ultimo] = await Promise.all([
+        getClosedSessions(10, role === "cajero" ? userId : undefined),
+        getLastClosedSession(),
+      ]);
       setClosedSessions(history);
+      setUltimoCierre(ultimo);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cerrar caja");
     } finally {
@@ -243,14 +289,36 @@ export default function CajaClient({
     }
   }
 
+  // Retiro implícito entre el cierre anterior y esta apertura (B40). El cajón cierra con
+  // fondo + recaudación; después alguien se lleva la recaudación y el turno siguiente
+  // arranca con un fondo mucho más chico. Esa plata hoy no deja NINGÚN rastro: no es una
+  // salida registrada ni aparece en el arqueo de ninguno de los dos turnos. Acá se calcula
+  // y se muestra para que quien abre lo vea y lo confirme antes de arrancar.
+  const aperturaUyuNum = montoInicial.trim() === "" ? null : Number(montoInicial.replace(",", "."));
+  const aperturaBrlNum = montoInicialBrl.trim() === "" ? null : Number(montoInicialBrl.replace(",", "."));
+  const retiroUyu =
+    ultimoCierre?.efectivo_contado_uyu != null && aperturaUyuNum != null
+      ? ultimoCierre.efectivo_contado_uyu - aperturaUyuNum
+      : null;
+  const retiroBrl =
+    ultimoCierre?.efectivo_contado_brl != null && aperturaBrlNum != null
+      ? ultimoCierre.efectivo_contado_brl - aperturaBrlNum
+      : null;
+  const hayRetiro = (retiroUyu != null && retiroUyu >= 1) || (retiroBrl != null && retiroBrl >= 0.05);
+  const hayFondoDeMas = (retiroUyu != null && retiroUyu <= -1) || (retiroBrl != null && retiroBrl <= -0.05);
+
   const salidaMontoNum = Number(salidaMonto.replace(",", "."));
   const salidaInvalida = savingSalida || !salidaMotivo.trim() || !(salidaMontoNum > 0);
 
   const descuadreInvariante = totals
     ? totals.total_ventas - (totals.total_efectivo_uyu + totals.total_brl_en_uyu + totals.total_digital)
     : 0;
+  // Tolerancia del invariante. Cada venta cobrada en reales puede desviarse hasta media
+  // moneda de R$0,05 por el redondeo a monto entregable (B43) — a la tasa actual eso es
+  // ~$0,20 por venta. El margen viejo (0,05/venta) era más chico que el error legítimo del
+  // redondeo y habría empezado a marcar descuadre falso en turnos con muchas ventas en BRL.
   const hayDescuadre =
-    !!totals && Math.abs(descuadreInvariante) > 1 + totals.cantidad_ventas * 0.05;
+    !!totals && Math.abs(descuadreInvariante) > 1 + totals.cantidad_ventas * 0.25;
 
   const esperadoUyu =
     (session?.monto_inicial ?? 0) + (totals?.total_efectivo_uyu ?? 0)
@@ -269,8 +337,13 @@ export default function CajaClient({
   const difUyu = contadoUyuNum === null ? null : contadoUyuNum - esperadoUyu;
   const difBrl = contadoBrlNum === null ? null : contadoBrlNum - esperadoBrl;
 
+  // Tolerancias por moneda. El peso uruguayo no tiene centavos en circulación, pero
+  // `esperadoUyu` se arma sumando floats en JS y puede dar 300.00000000000006: comparar
+  // contra cero exacto (lo que se hacía antes, B44) bloqueaba el cierre pidiendo nota
+  // aunque el arqueo cuadrara perfecto. Medio peso es menos que la moneda más chica que
+  // existe, así que no tapa ningún descuadre real.
   const arqueoDescuadra =
-    (difUyu !== null && difUyu !== 0) ||
+    (difUyu !== null && Math.abs(difUyu) >= 0.5) ||
     (hayMovimientoBrl && difBrl !== null && Math.abs(difBrl) >= 0.005);
 
   const faltaContado = contadoUyu.trim() === "" || (hayMovimientoBrl && contadoBrl.trim() === "");
@@ -325,6 +398,25 @@ export default function CajaClient({
                 <span className="text-xs text-[var(--text-muted)] uppercase">Tu cuenta</span>
               </div>
             </div>
+            {ultimoCierre && (ultimoCierre.efectivo_contado_uyu != null || ultimoCierre.efectivo_contado_brl != null) && (
+              <div className="rounded-lg border border-[var(--slate-gray)] bg-[var(--dark-bg)] px-4 py-3 space-y-1">
+                <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)]">
+                  Último cierre
+                  {ultimoCierre.cierre_at ? ` · ${fmtDate(ultimoCierre.cierre_at)}` : ""}
+                  {ultimoCierre.cerrado_por ? ` · ${ultimoCierre.cerrado_por}` : ""}
+                </p>
+                <p className="text-sm font-mono text-[var(--text-primary)]">
+                  Se contaron{" "}
+                  {ultimoCierre.efectivo_contado_uyu != null && <>$ {fmt(ultimoCierre.efectivo_contado_uyu)}</>}
+                  {ultimoCierre.efectivo_contado_uyu != null && ultimoCierre.efectivo_contado_brl != null && " · "}
+                  {ultimoCierre.efectivo_contado_brl != null && <>R$ {fmtBRL(ultimoCierre.efectivo_contado_brl)}</>}
+                </p>
+                <p className="text-xs text-[var(--text-muted)]">
+                  Contá el cajón ahora y poné lo que hay. Si es menos, es porque se retiró la
+                  recaudación — abajo te decimos cuánto.
+                </p>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="block text-sm uppercase tracking-wide text-[var(--text-secondary)]">
@@ -351,15 +443,50 @@ export default function CajaClient({
                   value={montoInicialBrl}
                   onChange={(e) => setMontoInicialBrl(e.target.value)}
                   placeholder="0.00"
+                  required
                   min="0"
                   step="0.01"
                   className="w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors"
                 />
+                <p className="text-xs text-[var(--text-muted)]">Si no hay reales en el cajón, poné 0.</p>
               </div>
             </div>
+            {hayRetiro && (
+              <div className="rounded-lg border border-[var(--warning)] bg-[var(--warning)]/10 px-4 py-3 space-y-1">
+                <p className="text-xs uppercase tracking-wide text-[var(--warning)] font-semibold">
+                  Se retiró del cajón desde el último cierre
+                </p>
+                <p className="text-lg font-mono font-bold text-[var(--warning)]">
+                  {retiroUyu != null && retiroUyu >= 1 && <>$ {fmt(retiroUyu)}</>}
+                  {retiroUyu != null && retiroUyu >= 1 && retiroBrl != null && retiroBrl >= 0.05 && " · "}
+                  {retiroBrl != null && retiroBrl >= 0.05 && <>R$ {fmtBRL(retiroBrl)}</>}
+                </p>
+                <p className="text-xs text-[var(--text-muted)]">
+                  Es la diferencia entre lo contado al cerrar y lo que estás declarando ahora.
+                  Normalmente es la recaudación que se llevó el dueño. Si no esperabas este número,
+                  revisá antes de abrir.
+                </p>
+              </div>
+            )}
+            {hayFondoDeMas && (
+              <div className="rounded-lg border border-[var(--error)] bg-[var(--error)]/10 px-4 py-3 space-y-1">
+                <p className="text-xs uppercase tracking-wide text-[var(--error)] font-semibold">
+                  Hay más plata que en el último cierre
+                </p>
+                <p className="text-lg font-mono font-bold text-[var(--error)]">
+                  {retiroUyu != null && retiroUyu <= -1 && <>$ {fmt(Math.abs(retiroUyu))}</>}
+                  {retiroUyu != null && retiroUyu <= -1 && retiroBrl != null && retiroBrl <= -0.05 && " · "}
+                  {retiroBrl != null && retiroBrl <= -0.05 && <>R$ {fmtBRL(Math.abs(retiroBrl))}</>}
+                </p>
+                <p className="text-xs text-[var(--text-muted)]">
+                  El cajón tiene más de lo que se contó al cerrar. Puede ser plata que se agregó
+                  para dar vuelto — pero verificá el conteo antes de abrir.
+                </p>
+              </div>
+            )}
             <button
               type="submit"
-              disabled={opening || !montoInicial}
+              disabled={opening || !montoInicial || !montoInicialBrl}
               className="w-full py-3 rounded-lg font-bold uppercase tracking-wide transition-all neon-outline-cyan neon-text-cyan hover:bg-[var(--neon-cyan)]/10 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {opening ? "Abriendo..." : "Abrir turno"}
@@ -489,9 +616,10 @@ export default function CajaClient({
                 {turnoSales.map((s) => (
                   <div key={s.id} className="flex items-center justify-between gap-3">
                     <div className={`truncate ${s.estado === "anulada" ? "opacity-50" : ""}`}>
-                      <span className={s.estado === "anulada" ? "line-through text-[var(--text-secondary)]" : "text-[var(--text-primary)]"}>
-                        {s.moneda === "BRL" ? `R$ ${fmtBRL(s.total)}` : `$ ${fmt(s.total)}`}
-                      </span>
+                      <ImporteVenta
+                        sale={s}
+                        className={s.estado === "anulada" ? "line-through text-[var(--text-secondary)]" : "text-[var(--text-primary)]"}
+                      />
                       <span className="text-[var(--text-muted)] text-xs ml-2 capitalize">
                         {s.metodo_pago}
                       </span>
@@ -843,7 +971,7 @@ export default function CajaClient({
                     <p className="text-[var(--text-secondary)] text-xs">
                       $ {fmt((s.total_efectivo_uyu ?? 0) - (s.ajuste_efectivo_uyu_post_cierre ?? 0))} UYU
                     </p>
-                    {(s.total_efectivo_brl ?? 0) > 0 && (
+                    {(s.total_efectivo_brl ?? 0) !== 0 && (
                       <p className="text-[var(--text-secondary)] text-xs">
                         R$ {fmtBRL((s.total_efectivo_brl ?? 0) - (s.ajuste_efectivo_brl_post_cierre ?? 0))} BRL
                       </p>
@@ -925,8 +1053,11 @@ export default function CajaClient({
                                     <span className="text-[var(--text-muted)] truncate italic">{v.nota}</span>
                                   )}
                                 </div>
-                                <span className={`font-mono font-semibold shrink-0 ${v.estado === "anulada" ? "line-through text-[var(--text-muted)]" : "text-[var(--text-primary)]"}`}>
-                                  {v.moneda === "BRL" ? `R$ ${fmtBRL(v.total)}` : `$ ${fmt(v.total)}`}
+                                <span className="font-mono font-semibold shrink-0">
+                                  <ImporteVenta
+                                    sale={v}
+                                    className={v.estado === "anulada" ? "line-through text-[var(--text-muted)]" : "text-[var(--text-primary)]"}
+                                  />
                                 </span>
                               </div>
                             ))}

@@ -98,6 +98,44 @@
 > middleware setea en la respuesta y no en el request); `convertBRLtoUYU` es cálculo puro y puede
 > quedar client-side; `cashRegister.ts` y `strategicInsights.ts` son código muerto (cero
 > importadores) → borrarlos saca 2 archivos del alcance.
+>
+> ### ⛔ Update (2026-08-27): EL DISPARADOR YA SE CUMPLIÓ — el riesgo diferido está activo
+> La decisión de arriba difería el refactor "hasta el primer turno real con plata", y valía
+> "solo porque hoy no hay datos reales en producción". **Ambas premisas ya son falsas:**
+>
+> | Dato | Valor |
+> |---|---|
+> | Primera venta real | **2026-06-10** (7 días *antes* de la decisión de diferir) |
+> | Última venta | **2026-08-27** (hoy — el kiosco está operando) |
+> | Ventas / turnos | 3.470 / 78 |
+> | Facturado | $806.925 UYU |
+>
+> **Cadena de ataque verificada de punta a punta (2026-08-27), no teórica:**
+> 1. `https://kiosco-manager-ruby.vercel.app` responde **200 sin login**. El SSO de Vercel está
+>    activo pero en modo `all_except_custom_domains`, y **ese alias no queda cubierto**.
+> 2. La anon key se baja del bundle público `/_next/static/chunks/9e02fbed4d006ed2.js`.
+> 3. Con esa key, `curl` a `/rest/v1/sales` devuelve ventas reales sin autenticar. Confirmado.
+>
+> Permisos de `anon` medidos contra la base de producción: **SELECT + INSERT + UPDATE + DELETE**
+> en `sales`, `sale_items`, `products`, `cash_sessions`, `cierres_caja` y `exchange_rate_config`.
+> Las 14 políticas `acceso_publico_*` son `FOR ALL USING (true) WITH CHECK (true)` sobre el rol
+> `public`: RLS habilitado pero sin efecto. Y 8 RPC son ejecutables por `anon`, incluidas
+> `create_sale_atomic`, `cancel_sale` y `close_cash_session`.
+>
+> `exchange_rate_config` escribible por anon es el peor caso concreto: cambiar la tasa UYU/BRL
+> desde afuera es robar plata del cajón, y pega en la prioridad #2 del proyecto.
+>
+> **Regresión detectada:** el `search_path = public` que esta misma entrada dio por resuelto el
+> 2026-06-17 **ya no está**. Las migraciones de B26/B27 recrearon las funciones y lo perdieron.
+> El advisor de Supabase vuelve a marcar las 7 (`create_sale_atomic`, `cancel_sale`,
+> `cancel_sale_own_turno`, `close_cash_session`, `register_cash_movement`, `turnos_con_stats`,
+> `productos_para_costear`). Lección: fijarlo en el `CREATE OR REPLACE`, no como paso aparte.
+>
+> **Lo que sí está bien:** `users`, `user_sessions` y `login_attempts` son `service_role`-only
+> (el curl a `users` devuelve `[]`), y la service role key nunca salió del servidor ni de git.
+>
+> Se reabre como **🔴 bloqueante**. El plan de cierre pasa a ser B47 (borde server) + B48
+> (capas de acceso). Ya no hay premisa que sostenga el diferimiento.
 
 - **Dónde:** [`lib/supabaseClient.ts`](../lib/supabaseClient.ts) usa la `anon key`, importado desde
   casi todos los `lib/services/*.ts` (no solo desde el navegador — también desde Server Components
@@ -528,6 +566,124 @@ Salieron de auditar el fix de B26 con Opus. Son **pre-existentes**, no los intro
   es a prueba de errores, no a prueba de manipulación.
 - **Fix sugerido:** políticas que nieguen `UPDATE` sobre `cash_sessions` con `estado = 'cerrada'`, y
   mover las escrituras críticas a funciones `SECURITY DEFINER`. Va junto con B5.
+
+---
+
+## 🔴 PASADA DE CUADRE CROSS-MONEDA (2026-08-27) — B40–B45
+
+> Disparador: el dueño reporta que "entran reales y no se registran en la caja, o al cierre no cuadra
+> lo que entró en reales". Se auditó todo el camino de las dos monedas (POS → `create_sale_atomic` →
+> columnas `GENERATED` → `close_cash_session` → arqueo → historial) **contra la base de producción**,
+> no solo leyendo el código.
+>
+> **El álgebra de dos cajones está bien.** Se verificaron los cuatro escenarios (pago BRL/vuelto BRL,
+> pago BRL/vuelto UYU, pago UYU/vuelto BRL, pago justo) y todos cierran contra el invariante. Las
+> columnas `mov_efectivo_uyu` / `mov_efectivo_brl` calculan lo correcto, y `close_cash_session` las
+> suma bien. **El problema no es la fórmula: es lo que entra a la fórmula.**
+>
+> Medición sobre 77 turnos cerrados:
+>
+> | Métrica | Valor |
+> |---|---|
+> | Turnos que abrieron declarando fondo BRL = 0 | **66 de 77** |
+> | Sobrantes acumulados en reales | **+R$ 3.184,58** |
+> | Faltantes acumulados en reales | −R$ 349,03 |
+> | Sobrantes acumulados en pesos | **+$ 208.195** |
+> | Faltantes acumulados en pesos | −$ 10.321 |
+> | Turnos que registraron algún movimiento (entrada/salida) en BRL | **1 de 77** |
+> | Ventas en efectivo BRL con `pagado` no entregable en billetes | 69 de 143 (48%) |
+> | Ventas con `tasa_cambio` NULL | **0** |
+>
+> El sesgo sobrante/faltante de **9:1 en reales y 20:1 en pesos** no es aleatorio (un descuadre real
+> daría ~1:1): es estructural. Viene de que el fondo declarado al abrir no se puede contrastar con
+> nada, porque el retiro de recaudación entre turnos no se registra (B40).
+>
+> **Nota de método:** la primera hipótesis sobre B40 (bastaba con arrastrar el contado anterior como
+> fondo) se implementó y después se **simuló contra 29 turnos reales antes de darla por buena**. La
+> simulación la refutó — producía faltantes falsos de hasta −$23.700 — y el cambio se revirtió. Lo
+> que quedó es el fix que sí resiste los datos. Vale la pena repetir esa secuencia con B45.
+
+### B40 · El retiro de recaudación no deja ningún rastro 🔴 — CAUSA RAÍZ
+- **Dónde:** [`app/caja/CajaClient.tsx`](../app/caja/CajaClient.tsx) — form de apertura (input
+  "Fondo inicial R$" sin `required`, submit valida solo `!montoInicial`).
+- **Qué pasa:** El turno cierra contando fondo + recaudación (ej. $17.690). Después alguien se
+  lleva la recaudación y el turno siguiente abre declarando un fondo de vuelto chico ($480). **Esos
+  $17.210 no quedan registrados en ningún lado**: no son una salida de caja (`cash_outflows`), no
+  figuran en el arqueo del turno que cerró ni en el que abre. La plata se evapora del sistema entre
+  un turno y el siguiente, todas las noches.
+- **Evidencia:** 66 de 77 turnos abrieron con `monto_inicial_brl = 0`. En pesos el fondo declarado
+  (480, 500, 570, 920…) es sistemáticamente mucho menor que el contado del cierre anterior
+  (17.690, 21.920, 25.330…). Nadie registró nunca ese retiro.
+- **Impacto:** No se puede auditar la recaudación. Si una noche se retiran $20.000 y aparecen
+  $18.000, el sistema no tiene con qué detectarlo. El arqueo cubre lo que pasa *dentro* del turno;
+  el hueco está *entre* turnos, que es justo donde se mueve toda la plata del día.
+- **Hipótesis descartada:** primero se asumió que el fondo simplemente "no se arrastraba" y que
+  bastaba con precargar el contado anterior. **Se simuló ese fix contra 29 turnos reales y era
+  peor**: generaba faltantes falsos de hasta −$23.700, porque asume que la plata se queda cuando en
+  realidad se retira. El arrastre automático se implementó, se midió, y se revirtió.
+- **Fix aplicado:** el form de apertura muestra qué se contó en el último cierre y, al tipear el
+  fondo, calcula y muestra **cuánto se retiró** (o avisa en rojo si hay más plata que al cerrar).
+  El campo BRL pasa a ser obligatorio como el de pesos. No se inventa ningún número: se hace visible
+  una diferencia que hoy nadie ve.
+- **Falta (no es código):** que el retiro quede persistido como movimiento, no solo mostrado. Lo
+  natural es registrarlo con `register_cash_movement` al cerrar ("retiro de recaudación"), pero eso
+  cambia el flujo de cierre y necesita decisión del dueño sobre quién lo confirma.
+
+### B41 · El historial muestra el total en pesos con símbolo R$ 🟠
+- **Dónde:** [`app/caja/CajaClient.tsx`](../app/caja/CajaClient.tsx) — lista de ventas del turno y
+  detalle del historial: `s.moneda === "BRL" ? R$ fmtBRL(s.total) : ...`.
+- **Qué pasa:** `sales.total` está **siempre en UYU** (es la suma de precios del carrito). `moneda`
+  solo indica con qué pagó el cliente. Una venta de $300 pagada con reales se lista como **"R$ 300"**
+  cuando al cajón entraron ~R$40.
+- **Impacto:** No descuadra la base, **descuadra al cajero**: suma los "R$" de la lista y no le da ni
+  cerca con el esperado en reales. Es lo que se ve al mirar el historial y decir "los reales no se
+  registran". Es el síntoma que originó este reporte.
+- **Fix:** mostrar siempre `$ total` y, aparte, el movimiento real del cajón (`mov_efectivo_brl`)
+  cuando es distinto de cero. Requiere agregar la columna al `select` de `fetchSalesBySession`.
+
+### B42 · El historial esconde los reales cuando el neto es negativo 🟠
+- **Dónde:** [`app/caja/CajaClient.tsx`](../app/caja/CajaClient.tsx) — `(s.total_efectivo_brl ?? 0) > 0 && …`
+- **Qué pasa:** La condición es `> 0`, no `!== 0`. Si en un turno predomina el patrón "paga en pesos,
+  pide el vuelto en reales" (35 ventas así en producción, −$3.976 UYU / +R$1.660), el neto BRL queda
+  negativo y **la línea de reales desaparece del resumen**: salieron reales del cajón y el historial
+  no dice nada.
+- **Fix:** `!== 0`. (En las líneas de entradas/salidas el `> 0` sí es correcto: son montos positivos.)
+
+### B43 · Pago justo y vuelto en reales generan montos no entregables 🟡
+- **Dónde:** [`app/ventas/nueva/page.tsx`](../app/ventas/nueva/page.tsx) — `cobrarPagoJustoBRL`
+  (`pagado: total / exchangeRate`) y `cobrarVueltoReales` (`vuelto: changeUYU / exchangeRate`).
+- **Qué pasa:** Ninguno redondea. Con tasa 7.0, un total de $300 se registra como `pagado = 42.86`.
+  El cliente **no entregó R$42,86**: la moneda mínima en circulación es R$0,05. Entregó R$45 o R$50.
+- **Evidencia:** 69 de 143 ventas en efectivo BRL (48%) tienen `pagado` con centavos imposibles, y
+  todas coinciden exactamente con `total / tasa_cambio`. El commit `65b99ba0` (2026-07-21) ya había
+  detectado esto y agregó el guard `brlPagoJustoExacto`, pero **resuelve solo la mitad**: deshabilita
+  el botón en vez de redondear, y no toca el vuelto.
+- **Impacto real medido: R$1,75 en dos meses.** Mucho menor de lo estimado a ojo — es ruido, no la
+  causa del descuadre. Se corrige igual porque además **traba al cajero**: el botón de un toque queda
+  deshabilitado en la mitad de las ventas en reales, justo en hora pico.
+- **Fix:** redondear al múltiplo de R$0,05 más cercano (error simétrico, sin sesgo acumulado) y
+  reactivar el botón siempre.
+
+### B44 · El arqueo en pesos exige nota por error de punto flotante 🟡
+- **Dónde:** [`app/caja/CajaClient.tsx`](../app/caja/CajaClient.tsx) — `arqueoDescuadra`.
+- **Qué pasa:** El lado BRL usa tolerancia (`>= 0.005`); el de UYU compara contra **cero exacto**
+  (`difUyu !== 0`). `esperadoUyu` se arma sumando floats en JS y puede dar `300.00000000000006`,
+  bloqueando el cierre y pidiendo nota aunque cuadre perfecto.
+- **Fix:** tolerancia de medio peso (`Math.abs(difUyu) >= 0.5`) — el peso uruguayo no tiene centavos.
+
+### B45 · Los movimientos de caja en reales no se usan 🟡
+- **Dónde:** flujo de `register_cash_movement` / UI de movimientos en `CajaClient.tsx`.
+- **Qué pasa:** **1 solo turno de 77** registró alguna entrada o salida en BRL. Cuando el cajero saca
+  reales del cajón para cambiar en la casa de cambio, o mete reales, no queda registro.
+- **Impacto:** Parte del "sobrante" y del "faltante" en reales es plata que sí se movió pero nunca se
+  anotó. La herramienta existe (B32) y no se usa — problema de descubribilidad, no de código.
+- **Fix sugerido:** no es código nuevo, es hacer visible el botón de movimiento en el turno abierto y
+  sugerirlo al cerrar cuando hay descuadre en reales. Queda anotado, no se resuelve en esta pasada.
+
+> **Descartado durante la auditoría:** se sospechó que las ventas viejas con `tasa_cambio` NULL
+> ensuciaban el invariante de consistencia. La base dice **0 ventas sin tasa** — la hipótesis era
+> falsa y no se tocó nada por eso.
+
 
 ---
 

@@ -241,6 +241,28 @@ export async function getClosedSessions(limit = 10, userId?: string | null): Pro
 }
 
 /**
+ * Último turno cerrado, sin filtrar por cajero. A diferencia de `getClosedSessions`, esta
+ * NO filtra por `user_id`: el cajón de efectivo es UNO solo y físico, así que el turno
+ * anterior es el anterior real, aunque lo haya cerrado otra persona.
+ *
+ * Se usa en la apertura para mostrar con cuánto cerró el cajón y calcular cuánto se retiró
+ * (B40). OJO: el contado del cierre NO es el fondo del turno siguiente — entre medio se
+ * retira la recaudación. Se muestra como referencia, nunca se precarga como valor.
+ */
+export async function getLastClosedSession(): Promise<CashSession | null> {
+  const { data, error } = await supabase
+    .from("cash_sessions")
+    .select("*")
+    .eq("estado", "cerrada")
+    .order("cierre_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data as CashSession | null;
+}
+
+/**
  * Cierra la sesión y graba el snapshot de totales via RPC atómica. `cerradoPor`/
  * `cerradoPorUserId` deben venir de la cuenta logueada (puede ser distinta de quien
  * abrió el turno — el turno se entrega a otro cajero — pero siempre la cuenta real, no

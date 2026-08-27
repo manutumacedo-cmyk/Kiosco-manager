@@ -102,6 +102,12 @@ export interface Sale {
   pagado: number | null;
   vuelto: number | null;
   vuelto_moneda: 'UYU' | 'BRL' | null; // NULL = UYU (default); 'BRL' cuando el vuelto se dio en reales
+  // Movimiento físico NETO por cajón (entra +, sale −), derivado por la DB (columnas
+  // GENERATED, ver B23/B24/B25). `total` está SIEMPRE en UYU — es la suma de precios del
+  // carrito, no lo que entró al cajón. Para saber cuántos reales entraron de verdad hay
+  // que mirar mov_efectivo_brl, no `total` con `moneda === 'BRL'` (B41).
+  mov_efectivo_uyu?: number;
+  mov_efectivo_brl?: number;
   estado: string; // 'activa' | 'anulada'
   anulada_por: string | null;  // quién anuló la venta (B30)
   anulada_at: string | null;   // cuándo se anuló (B30)

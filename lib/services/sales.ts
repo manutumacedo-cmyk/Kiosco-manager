@@ -160,7 +160,7 @@ export async function cancelSaleOwnTurno(saleId: string, anuladaPor: string): Pr
 export async function fetchSalesBySession(sessionId: string): Promise<Sale[]> {
   const { data, error } = await supabase
     .from("sales")
-    .select("id,fecha,metodo_pago,total,nota,moneda,estado,anulada_por,anulada_at,session_id,session_id_original,created_at")
+    .select("id,fecha,metodo_pago,total,nota,moneda,pagado,vuelto,vuelto_moneda,mov_efectivo_uyu,mov_efectivo_brl,estado,anulada_por,anulada_at,session_id,session_id_original,created_at")
     .eq("session_id", sessionId)
     .order("fecha", { ascending: false });
 
