@@ -96,6 +96,16 @@ export function CashFlowIcon({ className, size = 24 }: IconProps) {
   );
 }
 
+// Reloj con tilde: registro de asistencia (entrada/salida del local).
+export function AttendanceIcon({ className, size = 24 }: IconProps) {
+  return (
+    <svg {...base(size, className)}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 1.8" />
+    </svg>
+  );
+}
+
 export function UsersIcon({ className, size = 24 }: IconProps) {
   return (
     <svg {...base(size, className)}>
