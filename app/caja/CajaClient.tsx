@@ -80,6 +80,11 @@ export default function CajaClient({
   userId: string | null;
   username: string;
 }) {
+  // B49 · El descuadre es informacion del dueno, no del personal. Un cajero que ve la
+  // diferencia en vivo tiene el incentivo de ajustar el conteo hasta que de cero, y eso
+  // rompe justo lo que el arqueo (B28) vino a medir.
+  const esAdmin = role === "admin";
+
   const [pageState, setPageState] = useState<PageState>("loading");
   const [session, setSession] = useState<CashSession | null>(null);
   const [totals, setTotals] = useState<SessionTotals | null>(null);
@@ -138,18 +143,21 @@ export default function CajaClient({
         // anterior NO es el fondo de este turno. Imponerlo daría faltantes falsos enormes
         // (se simuló contra 29 turnos reales: hasta −$23.700). Lo que sí falta hoy es
         // dejar rastro de cuánto se retiró — eso se calcula y se muestra al tipear.
-        const ultimo = await getLastClosedSession();
+        const ultimo = esAdmin ? await getLastClosedSession() : null;
         setUltimoCierre(ultimo);
         setPageState("cerrada");
       }
-      // Cajero only sees their own sessions; admin sees all
-      const history = await getClosedSessions(10, role === "cajero" ? userId : undefined);
-      setClosedSessions(history);
+      // B49 · Antes esto traia los turnos del cajero filtrando por user_id. Ese era un
+      // filtro de ALCANCE, no de PERMISO: el arqueo y las diferencias igual llegaban al
+      // cliente. Ahora para un cajero directamente no se pide.
+      if (esAdmin) {
+        setClosedSessions(await getClosedSessions(10));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar sesión");
       setPageState("cerrada");
     }
-  }, [role, userId]);
+  }, [esAdmin]);
 
   async function handleCancelSale(saleId: string) {
     if (!session) return;
@@ -237,12 +245,14 @@ export default function CajaClient({
       setContadoBrl("");
       setArqueoConfirmado(false);
       setPageState("cerrada");
-      const [history, ultimo] = await Promise.all([
-        getClosedSessions(10, role === "cajero" ? userId : undefined),
-        getLastClosedSession(),
-      ]);
-      setClosedSessions(history);
-      setUltimoCierre(ultimo);
+      if (esAdmin) {
+        const [history, ultimo] = await Promise.all([
+          getClosedSessions(10),
+          getLastClosedSession(),
+        ]);
+        setClosedSessions(history);
+        setUltimoCierre(ultimo);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cerrar caja");
     } finally {
@@ -350,7 +360,10 @@ export default function CajaClient({
     (hayMovimientoBrl && difBrl !== null && Math.abs(difBrl) >= 0.005);
 
   const faltaContado = contadoUyu.trim() === "" || (hayMovimientoBrl && contadoBrl.trim() === "");
-  const faltaNotaPorDescuadre = arqueoDescuadra && !notas.trim();
+  // B49 · Exigir la nota solo tiene sentido para quien VE el descuadre. Al cajero no se le
+  // muestra la diferencia, asi que pedirle que la explique seria pedirle que justifique un
+  // numero que no conoce: para el la nota es opcional y el cierre nunca se traba.
+  const faltaNotaPorDescuadre = esAdmin && arqueoDescuadra && !notas.trim();
   const cierreBloqueado = closing || faltaContado || faltaNotaPorDescuadre;
 
   if (pageState === "loading") {
@@ -695,23 +708,26 @@ export default function CajaClient({
                 <p className="text-[var(--text-secondary)]">Apertura</p>
                 <p className="font-semibold">{fmtDate(session.apertura_at)}</p>
               </div>
-              <div>
-                <p className="text-[var(--text-secondary)]">Fondo inicial</p>
-                <p className="font-semibold">
-                  $ {fmt(session.monto_inicial)}
-                  {session.monto_inicial_brl > 0 && (
-                    <span className="ml-2 text-[var(--text-secondary)]">
-                      · R$ {fmtBRL(session.monto_inicial_brl)}
-                    </span>
-                  )}
-                </p>
-              </div>
+              {esAdmin && (
+                <div>
+                  <p className="text-[var(--text-secondary)]">Fondo inicial</p>
+                  <p className="font-semibold">
+                    $ {fmt(session.monto_inicial)}
+                    {session.monto_inicial_brl > 0 && (
+                      <span className="ml-2 text-[var(--text-secondary)]">
+                        · R$ {fmtBRL(session.monto_inicial_brl)}
+                      </span>
+                    )}
+                  </p>
+                </div>
+              )}
               <div>
                 <p className="text-[var(--text-secondary)]">Ventas realizadas</p>
                 <p className="font-semibold">{totals.cantidad_ventas}</p>
               </div>
             </div>
 
+            {esAdmin && (
             <div className="border-t border-[var(--slate-gray)] pt-3 space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-[var(--text-secondary)]">Total ventas</span>
@@ -755,7 +771,7 @@ export default function CajaClient({
                   </span>
                 </div>
               )}
-              {arqueoConfirmado && (
+              {arqueoConfirmado && esAdmin && (
                 <>
                   <div className="flex justify-between border-t border-[var(--slate-gray)] pt-2 font-semibold">
                     <span className="text-[var(--text-secondary)]">Efectivo total en caja $</span>
@@ -768,8 +784,16 @@ export default function CajaClient({
                 </>
               )}
             </div>
+            )}
 
-            {hayDescuadre && (
+            {!esAdmin && (
+              <p className="text-xs text-[var(--text-muted)] border-t border-[var(--slate-gray)] pt-3">
+                Contá el efectivo del cajón y confirmalo acá abajo. El débito, las
+                transferencias y el PIX no se cuentan: esos los concilia el dueño.
+              </p>
+            )}
+
+            {hayDescuadre && esAdmin && (
               <div className="p-3 rounded-lg border border-[var(--warning)] bg-[rgba(255,170,0,0.08)] text-sm">
                 <p className="text-[var(--warning)] font-semibold">⚠️ Aviso del sistema (no es tu conteo)</p>
                 <p className="text-[var(--text-secondary)] text-xs mt-1">
@@ -799,7 +823,7 @@ export default function CajaClient({
                 readOnly={arqueoConfirmado}
                 className={`w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors ${arqueoConfirmado ? "opacity-60 cursor-default" : ""}`}
               />
-              {arqueoConfirmado && (
+              {arqueoConfirmado && esAdmin && (
                 <div className="flex justify-between text-xs">
                   <span className="text-[var(--text-secondary)]">Esperado: $ {fmt(esperadoUyu)}</span>
                   {difUyu !== null && (
@@ -822,7 +846,7 @@ export default function CajaClient({
                   readOnly={arqueoConfirmado}
                   className={`w-full bg-[var(--dark-bg)] border border-[var(--slate-gray)] rounded-lg px-4 py-3 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--neon-cyan)] transition-colors ${arqueoConfirmado ? "opacity-60 cursor-default" : ""}`}
                 />
-                {arqueoConfirmado && (
+                {arqueoConfirmado && esAdmin && (
                   <div className="flex justify-between text-xs">
                     <span className="text-[var(--text-secondary)]">Esperado: R$ {fmtBRL(esperadoBrl)}</span>
                     {difBrl !== null && (
@@ -838,7 +862,9 @@ export default function CajaClient({
             {!arqueoConfirmado ? (
               <div className="space-y-2">
                 <p className="text-xs text-[var(--text-muted)]">
-                  Contá el efectivo físico y confirmá. El esperado y la diferencia se muestran después.
+                  {esAdmin
+                    ? "Contá el efectivo físico y confirmá. El esperado y la diferencia se muestran después."
+                    : "Contá el efectivo físico del cajón y confirmá lo que hay."}
                 </p>
                 <div className="flex gap-3">
                   <button
@@ -860,7 +886,9 @@ export default function CajaClient({
               </div>
             ) : (
               <div className="flex items-center justify-between gap-3">
-                {arqueoDescuadra ? (
+                {!esAdmin ? (
+                  <p className="text-xs text-[var(--text-muted)]">Conteo registrado. Ya podés cerrar el turno.</p>
+                ) : arqueoDescuadra ? (
                   <p className="text-xs text-[var(--warning)]">
                     Hay diferencia con lo esperado. Dejá una nota explicando el descuadre para poder cerrar.
                   </p>
@@ -900,7 +928,7 @@ export default function CajaClient({
                 </div>
                 <div className="space-y-2">
                   <label className="block text-sm uppercase tracking-wide text-[var(--text-secondary)]">
-                    {arqueoDescuadra ? "Notas · explicá el descuadre (obligatorio)" : "Notas (opcional)"}
+                    {esAdmin && arqueoDescuadra ? "Notas · explicá el descuadre (obligatorio)" : "Notas (opcional)"}
                   </label>
                   <textarea
                     value={notas}
@@ -939,7 +967,7 @@ export default function CajaClient({
       )}
 
       {/* ──────── HISTORIAL ──────── */}
-      {closedSessions.length > 0 && (
+      {esAdmin && closedSessions.length > 0 && (
         <div className="border-t border-[var(--slate-gray)] pt-6 space-y-3">
           <h2 className="text-sm uppercase tracking-wide text-[var(--text-secondary)] font-semibold">
             Historial de turnos
@@ -1031,7 +1059,7 @@ export default function CajaClient({
                 </div>
 
                 {/* Panel de ventas del turno — solo admin */}
-                {role === "admin" && (
+                {esAdmin && (
                   <>
                     <button
                       onClick={() => handleToggleSession(s.id)}
