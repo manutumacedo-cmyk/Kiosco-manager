@@ -4,15 +4,30 @@ import type { UserRole } from "@/lib/services/users";
 
 const AUTH_COOKIE_NAME = "24siete_auth_token";
 const SESSION_CHECK_COOKIE_NAME = "24siete_session_check";
+const LLEGADA_PENDIENTE_COOKIE = "24siete_llegada_pendiente";
+
+// Rutas que siguen funcionando con la llegada sin marcar. Sin esta lista el
+// gate se muerde la cola: la propia pantalla de llegada y el endpoint que la
+// registra quedarían bloqueados por el gate que vienen a levantar.
+const LLEGADA_EXENTAS = [
+  "/perfil/llegada",
+  "/api/asistencia/entrada",
+  "/api/asistencia/estado",
+  "/api/auth/logout",
+];
 const SESSION_CHECK_INTERVAL_MS = 3 * 60 * 1000; // revalidar sesión contra la DB cada ~3 min
 
 // Rutas accesibles solo por admin (páginas y API routes bajo ese prefijo)
+// Ojo: "/asistencia" (página de historial) es solo admin, pero
+// "/api/asistencia/..." NO está acá — los cajeros marcan entrada/salida por
+// esas rutas; el GET del historial chequea el rol dentro del handler.
 const ADMIN_ONLY_ROUTES = [
   "/reportes",
   "/historial",
   "/usuarios",
   "/api/usuarios",
   "/api/notificaciones", // M11 — avisos del negocio, solo el dueño los ve
+  "/asistencia",
 ];
 
 function getSecret(): Uint8Array {
@@ -77,6 +92,16 @@ export async function middleware(request: NextRequest) {
   const isAdminOnly = ADMIN_ONLY_ROUTES.some((r) => pathname.startsWith(r));
   if (isAdminOnly && payload.role !== "admin") {
     return NextResponse.redirect(new URL("/", request.url));
+  }
+
+  // Marcar la llegada al local es obligatorio al iniciar sesión (M12). La
+  // cookie la pone el login cuando no hay una entrada abierta y la borra el
+  // POST de entrada. Se chequea acá, con la cookie y sin tocar la base, porque
+  // el middleware corre en Edge y en cada request.
+  const llegadaPendiente =
+    request.cookies.get(LLEGADA_PENDIENTE_COOKIE)?.value === "1";
+  if (llegadaPendiente && !LLEGADA_EXENTAS.some((r) => pathname.startsWith(r))) {
+    return NextResponse.redirect(new URL("/perfil/llegada", request.url));
   }
 
   // Revalidación periódica: la firma del JWT ya se verificó arriba sin tocar

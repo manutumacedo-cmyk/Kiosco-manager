@@ -8,6 +8,7 @@ import {
   ComboIcon,
   ChartIcon,
   UsersIcon,
+  AttendanceIcon,
   PlayIcon,
 } from "@/components/Icons";
 
@@ -30,6 +31,7 @@ const SECONDARY: NavItem[] = [
   { href: "/caja", title: "Caja", description: "Apertura y cierre de turno", Icon: CashboxIcon, accent: "cyan", roles: ["admin", "cajero"] },
   { href: "/combos", title: "Combos", description: "Combos y tipo de cambio", Icon: ComboIcon, accent: "magenta", roles: ["admin", "cajero"] },
   { href: "/reportes/hoy", title: "Reportes", description: "Dashboard · Historial · Movimientos", Icon: ChartIcon, accent: "magenta", roles: ["admin"] },
+  { href: "/perfil", title: "Mi perfil", description: "Marcar llegada y salida", Icon: AttendanceIcon, accent: "cyan", roles: ["admin", "cajero"] },
   { href: "/usuarios", title: "Usuarios", description: "Cuentas y roles", Icon: UsersIcon, accent: "magenta", roles: ["admin"] },
 ];
 

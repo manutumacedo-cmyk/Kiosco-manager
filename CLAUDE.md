@@ -39,46 +39,44 @@ Se cobra en pesos uruguayos (UYU) y reales brasileños (BRL).
 - sale_items NO tiene FK a products (intencional, por los combos)
 
 ## Tarea actual
-Pasada de endurecimiento pre-producción (bugs B18–B31). **Hoy arranca la prueba en local.**
+**Estado al 2026-08-30.** La app está en producción (Vercel, sale de `main`) y el kiosco
+opera con ella todas las noches. Lo grande de la pasada de endurecimiento está cerrado.
 
-✅ Cerrado: cuadre cross-moneda (B23, B24, B25), tasa por venta (B29) y arqueo de
-efectivo contado al cierre (B28, pasos 1-4). El arqueo guarda `efectivo_contado_uyu/brl`
-y `diferencia_*`, muestra diferencia en vivo, exige nota si hay descuadre, y el historial
-indica Sobró/Faltó/✓ cuadró.
+✅ Cerrado y en producción:
+- **Cuadre cross-moneda completo** (B23-B25, B29, B28, B40-B44, B46). El arqueo guarda
+  `efectivo_contado_uyu/brl` y `diferencia_*`; PIX se registra como digital en BRL.
+- **B18** — idempotencia en `createSale`; **B26/B27** — frontera de turno cerrada.
+- **B49** — visibilidad por rol en `/caja`: el cajero abre tipeando solo el fondo, opera su
+  turno y cierra con **conteo a ciegas** (sin esperado, sin diferencia, sin historial, nota
+  opcional que nunca traba). El admin ve todo y la diferencia se sigue grabando (B28 intacto).
+  OJO: el corte es del lado del cliente — el corte duro espera a B47 + B36/B5.
+- **B50** — diferencias entre cajas: vista `diferencias_entre_turnos` (LAG por `apertura_at`)
+  + panel solo-admin en `/caja`. Derivada a propósito: persistir el retiro como `cash_outflow`
+  rompía el arqueo (`diferencia_*` son GENERATED sobre `total_salidas_*`). Medido al aplicar:
+  $605.595 y R$7.892 retirados sin rastro en 79 turnos.
+- **M11** — última conexión por usuario + aviso de login fuera de horario (18:30–03:30,
+  hora de Rivera, `lib/horarioKiosco.ts` — usar ese helper para toda comparación horaria).
 
-🟡 B20 — parcial: mensaje resuelto (el error de stock muestra el nombre del producto),
-falta la segunda mitad (que un faltante de un solo ítem no aborte el carrito entero).
+- **M12** — asistencia del personal en `/perfil`: llegada **obligatoria** al iniciar sesión
+  (cookie + gate en middleware), salida opcional con panel de tres opciones al desloguear, y
+  aviso con hora exacta de cada llegada y salida en el centro de notificaciones. Incluye
+  `feat/asistencia` (PR #9) mergeado dentro. **Rama `feat/perfil-asistencia`, PR #10 abierto.**
+  Su migración ya está aplicada: la de PR #9 nunca se había corrido y la tabla no existía.
 
-✅ B18 — resuelto: idempotencia en `createSale` con `client_request_id` (UUID por intento de
-cobro, rota por carrito). `create_sale_atomic` dedupea + unique index parcial + guard
-`unique_violation`; combos idempotentes (upsert). Verificado en browser (Network=Offline).
-
-⏳ Críticos (🔴) que quedan sin resolver:
-- **B26** — anular una venta tras el cierre desincroniza el snapshot del turno
-  (`cancel_sale` no chequea turno cerrado).
-
-Otros pendientes no-críticos: B19, B21, B22, B27, B30 (🟠/🟡) y B31 (carpeta `web/` duplicada).
-
-### Pasada cross-moneda (2026-08-27) — B40–B45
-Auditoría del camino de las dos monedas **contra la base de producción**. El álgebra de dos
-cajones estaba bien; fallaban las entradas y la presentación.
-
-- ✅ **B41** — el historial mostraba `total` (que está en UYU) con símbolo R$. Una venta de $300
-  pagada en reales se listaba como "R$ 300" cuando entraron R$40. Medido: el historial exageraba
-  los reales **7×** (R$1.390 mostrados vs R$188 reales). Era el síntoma que originó el reporte.
-- ✅ **B42** — el neto BRL negativo (paga en pesos, vuelto en reales) desaparecía del historial.
-- ✅ **B43** — `pago justo` y `vuelto` en reales guardaban `total / tasa` sin redondear, generando
-  montos no entregables (R$42,86). 48% de las ventas en BRL. Ahora se redondea a R$0,05.
-- ✅ **B44** — el arqueo en pesos comparaba contra cero exacto y pedía nota por error de float.
-- 🟡 **B40** — el retiro de recaudación entre turnos no deja rastro. Se muestra cuánto se retiró
-  al abrir; **falta persistirlo** como movimiento (necesita decisión sobre el flujo de cierre).
-- 🟡 **B45** — solo 1 turno de 77 registró movimientos en BRL. No es código, es descubribilidad.
-
-**Probado en browser** (Playwright, sesión real, datos de producción, sin escribir nada):
-B41 se ve como `$ 100 + R$ 13,33` en el turno del 21/08; B42 muestra "Faltó R$ 30,00"; B43 da
-montos entregables y el botón de un toque ya no se deshabilita (con tasa 7,5 estaba inhabilitado
-en 5 de 6 totales probados). **Sin probar en browser: B40 y B44** — el form de apertura y el
-modal de cierre requieren cerrar el turno abierto de producción.
+⏳ Pendientes que importan, en orden:
+- **B36/B5 + B47** 🔴 — RLS abierta (`USING (true)`) y anon key pública: todo el corte de
+  visibilidad es best-effort hasta cerrar esto.
+- **B51** 🟠 — `users_username_key` es `UNIQUE(username)` con soft delete: 7 nombres quemados
+  (incluye `Test_Caja` y `Santiago`, un cajero real). Fix: índice único parcial
+  `WHERE deleted_at IS NULL`. **B52** 🟡 — login case-sensitive.
+- **B20** 🟡 parcial — falta que un faltante de stock de un ítem no aborte el carrito entero.
+- **B45** 🟡 — nadie declara fondo BRL ni registra movimientos en reales (descubribilidad).
+- Decisión de producto pendiente: el panel del **turno abierto** todavía muestra al cajero
+  efectivo/fondo/entradas/salidas — puede anotarlos antes de cerrar y burlar el conteo a
+  ciegas. Propuesta: dejarle solo `Ventas realizadas` y `Total ventas`.
+- Limpieza menor: B19, B21, B22, B30, B31 (carpeta `web/` duplicada). Los datos de QA ya
+  se limpiaron (usuarios temporales, avisos de prueba y el turno de caja que había quedado
+  abierto y bloqueaba la apertura).
 
 ## gstack
 Comandos namespaceados con prefijo `gstack-` (instalado con `./setup --prefix`).
