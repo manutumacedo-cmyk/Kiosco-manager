@@ -763,6 +763,53 @@ Salieron de auditar el fix de B26 con Opus. Son **pre-existentes**, no los intro
 
 ---
 
+## 👤 IDENTIDAD DE USUARIO (2026-08-30) — B51–B52
+
+> Los dos salieron de la pasada de QA de B49/M11, mirando `public.users` en producción.
+> Ninguno está arreglado. Tocan auth, así que el fix va con prueba, no de apuro.
+
+### B51 · Un nombre de usuario borrado no se puede volver a usar nunca 🟠
+- **Dónde:** el índice `users_username_key` en la base es `UNIQUE (username)` a secas,
+  mientras que el borrado de usuarios es **lógico** (`users.deleted_at`, ver
+  `migration_sesiones_y_borrado_usuarios.sql` y `deleteUser` en
+  [`lib/services/users.ts`](../lib/services/users.ts)).
+- **Qué pasa:** la fila borrada sigue ocupando el nombre. Crear de nuevo esa cuenta choca
+  contra el UNIQUE, y `POST /api/usuarios` devuelve 409 "duplicate key".
+- **Impacto real, no teórico:** hay **6 nombres quemados** en producción, y uno es
+  `Santiago` — un cajero de verdad, borrado el 29/07. Si Santiago vuelve a trabajar, su
+  cuenta no se puede recrear con su nombre. Los otros cinco son `admin`, `Admin`,
+  `cajero_test`, `temp_borrar_qa`, `test_admin_temp`.
+- **Por qué el borrado es lógico y no se cambia:** `cash_sessions.user_id` y
+  `cerrado_por_user_id` tienen FK a `users.id`. Un DELETE real rompería el historial de
+  caja. La decisión de fondo está bien; lo que falta es que el UNIQUE la acompañe.
+- **Fix propuesto:** reemplazar la constraint por un índice único **parcial**, para que la
+  unicidad valga solo entre las cuentas vivas:
+  ```sql
+  ALTER TABLE users DROP CONSTRAINT users_username_key;
+  CREATE UNIQUE INDEX users_username_activos_key
+    ON users (username) WHERE deleted_at IS NULL;
+  ```
+- **Estado del código para ese cambio (verificado hoy):** la única consulta a `users` por
+  nombre es `verifyCredentials`, y ya filtra `deleted_at IS NULL` antes del `.single()`, así
+  que un nombre reusado no rompe el login. La otra búsqueda por `username` que hay en el
+  repo (`app/api/auth/login/route.ts`) es sobre `login_attempts`, que no tiene borrado
+  lógico y no se ve afectada. El riesgo no es el código de hoy: es que mañana alguien
+  agregue un `.eq("username", …)` sobre `users` sin el filtro y se encuentre dos filas.
+
+### B52 · El usuario es sensible a mayúsculas al entrar 🟡
+- **Dónde:** `verifyCredentials` en [`lib/services/users.ts`](../lib/services/users.ts) hace
+  `.eq("username", username.trim())`, y el UNIQUE de la base también es case-sensitive.
+- **Qué pasa:** un cajero que tipea `lucas` en vez de `Lucas` recibe "Credenciales
+  incorrectas", igual que si se hubiera equivocado de clave. En producción **coexisten
+  `admin` y `Admin`** como dos filas distintas, que es la prueba de que la base lo permite.
+- **Impacto:** fricción en hora pico y un mensaje de error que miente sobre la causa. No
+  toca la plata, por eso es 🟡 y no 🟠.
+- **Fix propuesto:** normalizar el nombre a minúsculas al crear y al comparar (o índice
+  único sobre `lower(username)`), guardando aparte el nombre con el formato lindo para
+  mostrarlo. Va junto con B51: son la misma constraint.
+
+---
+
 ## 🔔 CENTRO DE NOTIFICACIONES DEL NEGOCIO (2026-08-30) — M11
 
 ### M11 · Última conexión por usuario + aviso de login fuera de horario
