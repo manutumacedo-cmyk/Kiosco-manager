@@ -98,6 +98,44 @@
 > middleware setea en la respuesta y no en el request); `convertBRLtoUYU` es cálculo puro y puede
 > quedar client-side; `cashRegister.ts` y `strategicInsights.ts` son código muerto (cero
 > importadores) → borrarlos saca 2 archivos del alcance.
+>
+> ### ⛔ Update (2026-08-27): EL DISPARADOR YA SE CUMPLIÓ — el riesgo diferido está activo
+> La decisión de arriba difería el refactor "hasta el primer turno real con plata", y valía
+> "solo porque hoy no hay datos reales en producción". **Ambas premisas ya son falsas:**
+>
+> | Dato | Valor |
+> |---|---|
+> | Primera venta real | **2026-06-10** (7 días *antes* de la decisión de diferir) |
+> | Última venta | **2026-08-27** (hoy — el kiosco está operando) |
+> | Ventas / turnos | 3.470 / 78 |
+> | Facturado | $806.925 UYU |
+>
+> **Cadena de ataque verificada de punta a punta (2026-08-27), no teórica:**
+> 1. `https://kiosco-manager-ruby.vercel.app` responde **200 sin login**. El SSO de Vercel está
+>    activo pero en modo `all_except_custom_domains`, y **ese alias no queda cubierto**.
+> 2. La anon key se baja del bundle público `/_next/static/chunks/9e02fbed4d006ed2.js`.
+> 3. Con esa key, `curl` a `/rest/v1/sales` devuelve ventas reales sin autenticar. Confirmado.
+>
+> Permisos de `anon` medidos contra la base de producción: **SELECT + INSERT + UPDATE + DELETE**
+> en `sales`, `sale_items`, `products`, `cash_sessions`, `cierres_caja` y `exchange_rate_config`.
+> Las 14 políticas `acceso_publico_*` son `FOR ALL USING (true) WITH CHECK (true)` sobre el rol
+> `public`: RLS habilitado pero sin efecto. Y 8 RPC son ejecutables por `anon`, incluidas
+> `create_sale_atomic`, `cancel_sale` y `close_cash_session`.
+>
+> `exchange_rate_config` escribible por anon es el peor caso concreto: cambiar la tasa UYU/BRL
+> desde afuera es robar plata del cajón, y pega en la prioridad #2 del proyecto.
+>
+> **Regresión detectada:** el `search_path = public` que esta misma entrada dio por resuelto el
+> 2026-06-17 **ya no está**. Las migraciones de B26/B27 recrearon las funciones y lo perdieron.
+> El advisor de Supabase vuelve a marcar las 7 (`create_sale_atomic`, `cancel_sale`,
+> `cancel_sale_own_turno`, `close_cash_session`, `register_cash_movement`, `turnos_con_stats`,
+> `productos_para_costear`). Lección: fijarlo en el `CREATE OR REPLACE`, no como paso aparte.
+>
+> **Lo que sí está bien:** `users`, `user_sessions` y `login_attempts` son `service_role`-only
+> (el curl a `users` devuelve `[]`), y la service role key nunca salió del servidor ni de git.
+>
+> Se reabre como **🔴 bloqueante**. El plan de cierre pasa a ser B47 (borde server) + B48
+> (capas de acceso). Ya no hay premisa que sostenga el diferimiento.
 
 - **Dónde:** [`lib/supabaseClient.ts`](../lib/supabaseClient.ts) usa la `anon key`, importado desde
   casi todos los `lib/services/*.ts` (no solo desde el navegador — también desde Server Components
@@ -531,6 +569,276 @@ Salieron de auditar el fix de B26 con Opus. Son **pre-existentes**, no los intro
 
 ---
 
+## 🔴 PASADA DE CUADRE CROSS-MONEDA (2026-08-27) — B40–B45
+
+> Disparador: el dueño reporta que "entran reales y no se registran en la caja, o al cierre no cuadra
+> lo que entró en reales". Se auditó todo el camino de las dos monedas (POS → `create_sale_atomic` →
+> columnas `GENERATED` → `close_cash_session` → arqueo → historial) **contra la base de producción**,
+> no solo leyendo el código.
+>
+> **El álgebra de dos cajones está bien.** Se verificaron los cuatro escenarios (pago BRL/vuelto BRL,
+> pago BRL/vuelto UYU, pago UYU/vuelto BRL, pago justo) y todos cierran contra el invariante. Las
+> columnas `mov_efectivo_uyu` / `mov_efectivo_brl` calculan lo correcto, y `close_cash_session` las
+> suma bien. **El problema no es la fórmula: es lo que entra a la fórmula.**
+>
+> Medición sobre 77 turnos cerrados:
+>
+> | Métrica | Valor |
+> |---|---|
+> | Turnos que abrieron declarando fondo BRL = 0 | **66 de 77** |
+> | Sobrantes acumulados en reales | **+R$ 3.184,58** |
+> | Faltantes acumulados en reales | −R$ 349,03 |
+> | Sobrantes acumulados en pesos | **+$ 208.195** |
+> | Faltantes acumulados en pesos | −$ 10.321 |
+> | Turnos que registraron algún movimiento (entrada/salida) en BRL | **1 de 77** |
+> | Ventas en efectivo BRL con `pagado` no entregable en billetes | 69 de 143 (48%) |
+> | Ventas con `tasa_cambio` NULL | **0** |
+>
+> El sesgo sobrante/faltante de **9:1 en reales y 20:1 en pesos** no es aleatorio (un descuadre real
+> daría ~1:1): es estructural. Viene de que el fondo declarado al abrir no se puede contrastar con
+> nada, porque el retiro de recaudación entre turnos no se registra (B40).
+>
+> **Nota de método:** la primera hipótesis sobre B40 (bastaba con arrastrar el contado anterior como
+> fondo) se implementó y después se **simuló contra 29 turnos reales antes de darla por buena**. La
+> simulación la refutó — producía faltantes falsos de hasta −$23.700 — y el cambio se revirtió. Lo
+> que quedó es el fix que sí resiste los datos. Vale la pena repetir esa secuencia con B45.
+
+### B40 · El retiro de recaudación no deja ningún rastro 🔴 — CAUSA RAÍZ
+- **Dónde:** [`app/caja/CajaClient.tsx`](../app/caja/CajaClient.tsx) — form de apertura (input
+  "Fondo inicial R$" sin `required`, submit valida solo `!montoInicial`).
+- **Qué pasa:** El turno cierra contando fondo + recaudación (ej. $17.690). Después alguien se
+  lleva la recaudación y el turno siguiente abre declarando un fondo de vuelto chico ($480). **Esos
+  $17.210 no quedan registrados en ningún lado**: no son una salida de caja (`cash_outflows`), no
+  figuran en el arqueo del turno que cerró ni en el que abre. La plata se evapora del sistema entre
+  un turno y el siguiente, todas las noches.
+- **Evidencia:** 66 de 77 turnos abrieron con `monto_inicial_brl = 0`. En pesos el fondo declarado
+  (480, 500, 570, 920…) es sistemáticamente mucho menor que el contado del cierre anterior
+  (17.690, 21.920, 25.330…). Nadie registró nunca ese retiro.
+- **Impacto:** No se puede auditar la recaudación. Si una noche se retiran $20.000 y aparecen
+  $18.000, el sistema no tiene con qué detectarlo. El arqueo cubre lo que pasa *dentro* del turno;
+  el hueco está *entre* turnos, que es justo donde se mueve toda la plata del día.
+- **Hipótesis descartada:** primero se asumió que el fondo simplemente "no se arrastraba" y que
+  bastaba con precargar el contado anterior. **Se simuló ese fix contra 29 turnos reales y era
+  peor**: generaba faltantes falsos de hasta −$23.700, porque asume que la plata se queda cuando en
+  realidad se retira. El arrastre automático se implementó, se midió, y se revirtió.
+- **Fix aplicado:** el form de apertura muestra qué se contó en el último cierre y, al tipear el
+  fondo, calcula y muestra **cuánto se retiró** (o avisa en rojo si hay más plata que al cerrar).
+  El campo BRL pasa a ser obligatorio como el de pesos. No se inventa ningún número: se hace visible
+  una diferencia que hoy nadie ve.
+- **Falta (no es código):** que el retiro quede persistido como movimiento, no solo mostrado. Lo
+  natural es registrarlo con `register_cash_movement` al cerrar ("retiro de recaudación"), pero eso
+  cambia el flujo de cierre y necesita decisión del dueño sobre quién lo confirma.
+
+### B41 · El historial muestra el total en pesos con símbolo R$ 🟠
+- **Dónde:** [`app/caja/CajaClient.tsx`](../app/caja/CajaClient.tsx) — lista de ventas del turno y
+  detalle del historial: `s.moneda === "BRL" ? R$ fmtBRL(s.total) : ...`.
+- **Qué pasa:** `sales.total` está **siempre en UYU** (es la suma de precios del carrito). `moneda`
+  solo indica con qué pagó el cliente. Una venta de $300 pagada con reales se lista como **"R$ 300"**
+  cuando al cajón entraron ~R$40.
+- **Impacto:** No descuadra la base, **descuadra al cajero**: suma los "R$" de la lista y no le da ni
+  cerca con el esperado en reales. Es lo que se ve al mirar el historial y decir "los reales no se
+  registran". Es el síntoma que originó este reporte.
+- **Fix:** mostrar siempre `$ total` y, aparte, el movimiento real del cajón (`mov_efectivo_brl`)
+  cuando es distinto de cero. Requiere agregar la columna al `select` de `fetchSalesBySession`.
+
+### B42 · El historial esconde los reales cuando el neto es negativo 🟠
+- **Dónde:** [`app/caja/CajaClient.tsx`](../app/caja/CajaClient.tsx) — `(s.total_efectivo_brl ?? 0) > 0 && …`
+- **Qué pasa:** La condición es `> 0`, no `!== 0`. Si en un turno predomina el patrón "paga en pesos,
+  pide el vuelto en reales" (35 ventas así en producción, −$3.976 UYU / +R$1.660), el neto BRL queda
+  negativo y **la línea de reales desaparece del resumen**: salieron reales del cajón y el historial
+  no dice nada.
+- **Fix:** `!== 0`. (En las líneas de entradas/salidas el `> 0` sí es correcto: son montos positivos.)
+
+### B43 · Pago justo y vuelto en reales generan montos no entregables 🟡
+- **Dónde:** [`app/ventas/nueva/page.tsx`](../app/ventas/nueva/page.tsx) — `cobrarPagoJustoBRL`
+  (`pagado: total / exchangeRate`) y `cobrarVueltoReales` (`vuelto: changeUYU / exchangeRate`).
+- **Qué pasa:** Ninguno redondea. Con tasa 7.0, un total de $300 se registra como `pagado = 42.86`.
+  El cliente **no entregó R$42,86**: la moneda mínima en circulación es R$0,05. Entregó R$45 o R$50.
+- **Evidencia:** 69 de 143 ventas en efectivo BRL (48%) tienen `pagado` con centavos imposibles, y
+  todas coinciden exactamente con `total / tasa_cambio`. El commit `65b99ba0` (2026-07-21) ya había
+  detectado esto y agregó el guard `brlPagoJustoExacto`, pero **resuelve solo la mitad**: deshabilita
+  el botón en vez de redondear, y no toca el vuelto.
+- **Impacto real medido: R$1,75 en dos meses.** Mucho menor de lo estimado a ojo — es ruido, no la
+  causa del descuadre. Se corrige igual porque además **traba al cajero**: el botón de un toque queda
+  deshabilitado en la mitad de las ventas en reales, justo en hora pico.
+- **Fix:** redondear al múltiplo de R$0,05 más cercano (error simétrico, sin sesgo acumulado) y
+  reactivar el botón siempre.
+
+### B44 · El arqueo en pesos exige nota por error de punto flotante 🟡
+- **Dónde:** [`app/caja/CajaClient.tsx`](../app/caja/CajaClient.tsx) — `arqueoDescuadra`.
+- **Qué pasa:** El lado BRL usa tolerancia (`>= 0.005`); el de UYU compara contra **cero exacto**
+  (`difUyu !== 0`). `esperadoUyu` se arma sumando floats en JS y puede dar `300.00000000000006`,
+  bloqueando el cierre y pidiendo nota aunque cuadre perfecto.
+- **Fix:** tolerancia de medio peso (`Math.abs(difUyu) >= 0.5`) — el peso uruguayo no tiene centavos.
+
+### B45 · Los movimientos de caja en reales no se usan 🟡
+- **Dónde:** flujo de `register_cash_movement` / UI de movimientos en `CajaClient.tsx`.
+- **Qué pasa:** **1 solo turno de 77** registró alguna entrada o salida en BRL. Cuando el cajero saca
+  reales del cajón para cambiar en la casa de cambio, o mete reales, no queda registro.
+- **Impacto:** Parte del "sobrante" y del "faltante" en reales es plata que sí se movió pero nunca se
+  anotó. La herramienta existe (B32) y no se usa — problema de descubribilidad, no de código.
+- **Fix sugerido:** no es código nuevo, es hacer visible el botón de movimiento en el turno abierto y
+  sugerirlo al cerrar cuando hay descuadre en reales. Queda anotado, no se resuelve en esta pasada.
+
+### B46 · PIX se guardaba como digital en pesos 🟠
+- **Dónde:** [`app/ventas/nueva/page.tsx`](../app/ventas/nueva/page.tsx) — `cobrarDigital`,
+  que mandaba `moneda: "UYU"` fija para los cuatro métodos digitales.
+- **Qué pasa:** PIX es un riel brasileño: la plata cae en una cuenta de Brasil **en reales**.
+  El POS lo guardaba como peso y lo sumaba a `total_digital` junto con débito, crédito y
+  transferencia. Además `pagado` va en `null` para todo cobro digital, así que **el monto en
+  reales que entró no quedaba registrado en ningún lado**.
+- **Impacto:** El saldo de la cuenta PIX no se puede conciliar contra el sistema. Filtrar
+  reportes por "pix" devuelve pesos, no los R$ que llegaron. No descuadra el cajón físico
+  (`mov_efectivo_brl` solo suma con `metodo_pago = 'efectivo'`, eso ya estaba bien): el hueco
+  es de conciliación bancaria, no de arqueo.
+- **Distinto de B45:** B45 son movimientos de reales **en efectivo** que nadie anota. Acá el
+  problema es que el **reales digital no estaba modelado**.
+- **Fix aplicado:** PIX pasa a guardarse con `moneda = 'BRL'` (`METODOS_DIGITALES_BRL`, pensado
+  para que sumar otro método brasileño sea agregarlo al set). Se agregan tres campos al cierre:
+  `total_digital_uyu`, `total_digital_brl` (en R$) y `total_digital_brl_en_uyu`. El cierre de
+  caja muestra las dos líneas separadas. Migración: `lib/sql/migration_b46_pix_digital_brl.sql`.
+- **Lo que a propósito NO se tocó:** `total_digital` sigue siendo todo lo digital valuado en UYU,
+  así el invariante de consistencia y los turnos ya cerrados no se mueven. Las ventas históricas
+  con PIX quedan como pesos: no se migran, para no alterar arqueos ya firmados. Los reportes
+  siguen 100% en pesos, que es su diseño — meter reales ahí mezclaría monedas.
+- **Monto en R$:** se deriva de `total / tasa_cambio`, usando el snapshot de tasa que ya guarda
+  cada venta (B29). Si el cliente transfirió una cifra redondeada distinta, el registro no va a
+  coincidir al centavo con el extracto. Si eso molesta, el paso siguiente es que el cajero tipee
+  el monto exacto al cobrar.
+
+> **Descartado durante la auditoría:** se sospechó que las ventas viejas con `tasa_cambio` NULL
+> ensuciaban el invariante de consistencia. La base dice **0 ventas sin tasa** — la hipótesis era
+> falsa y no se tocó nada por eso.
+
+
+---
+
+## 🔐 PASADA DE VISIBILIDAD POR ROL EN CAJA (2026-08-30) — B49–B50
+
+> Decisión del dueño: **el descuadre es información del dueño, no del personal.** Un cajero que ve
+> la diferencia en vivo tiene el incentivo de ajustar el conteo hasta que dé cero, y eso rompe
+> justamente lo que el arqueo (B28) vino a medir. Además, el hueco de recaudación entre turnos
+> (B40) deja de ser algo que se *muestra* y pasa a ser algo que se *registra*.
+
+### B49 · El cajero ve el arqueo, las diferencias y el historial de turnos 🔴
+- **Dónde:** [`app/caja/CajaClient.tsx`](../app/caja/CajaClient.tsx) — el historial de turnos
+  cerrados se carga para todo el mundo (`getClosedSessions(10, role === "cajero" ? userId : undefined)`,
+  L146 y L241); solo el panel de "ventas del turno" está detrás de `role === "admin"` (L1034).
+  Las líneas de **Sobró / Faltó / ✓ cuadró** y el efectivo contado se renderizan sin chequear rol.
+- **Qué pasa:** el cajero ve su propio descuadre histórico y, al cerrar, la diferencia en vivo
+  contra lo esperado. El filtrado por `userId` es un filtro de *alcance*, no de *permiso*: la
+  información sensible igual llega al cliente.
+- **Impacto:** invita a cuadrar el conteo hacia atrás en vez de contar de verdad. Pega en la
+  prioridad #2 (que la caja cuadre) porque contamina la medición con la que se detecta el faltante.
+- **Alcance decidido:**
+  - **Cajero** → solo su **sesión actual**: abrirla (tipeando el fondo inicial y nada más),
+    registrar entradas/salidas, ver las ventas del turno en curso para anular, y cerrarla
+    (tipea lo contado, sin ver la diferencia resultante).
+  - **Admin** → historial completo de turnos y, en cada cierre, el contado en **pesos, reales,
+    digital/transferencia y PIX** (esto último ya separado por B46) más la diferencia.
+- **Nota de implementación:** el corte va **en el servidor** (`lib/services/cashSessions.ts` +
+  el borde que arma los props), no ocultando divs. Hoy `role` llega por header desde
+  [`app/caja/page.tsx`](../app/caja/page.tsx), lo cual está bien como fuente, pero los datos del
+  arqueo no deben salir del server para un cajero. Se cruza con B47 (borde server) y B36/B5.
+
+### B50 · El retiro de recaudación se muestra pero no se persiste 🔴 — segunda mitad de B40
+- **Dónde:** [`app/caja/CajaClient.tsx`](../app/caja/CajaClient.tsx) — form de apertura.
+- **Qué pasa:** B40 dejó visible cuánto se retiró entre el cierre anterior y la apertura, pero el
+  número **no se guarda en ningún lado**. Sigue sin haber con qué auditar la recaudación.
+- **Fix decidido:** al abrir un turno, el sistema toma el efectivo contado en el cierre anterior
+  (UYU y BRL) y lo compara con el fondo inicial declarado. Si el fondo es menor, la caja **se abre
+  igual y se trabaja con normalidad**, pero la diferencia se registra automáticamente como
+  **movimiento de salida** ("retiro de recaudación") vía `register_cash_movement`. El local tenía
+  X al cerrar y tiene Y al abrir: esos X−Y salieron y quedan contabilizados.
+- **Cambio respecto de B40:** el cajero **ya no ve** el contado anterior ni el retiro calculado
+  (queda subsumido en B49). Solo tipea con cuánto abre. El retiro es un asiento del sistema que
+  ve el admin.
+- **Sigue descartado:** arrastrar el contado anterior como fondo automático. Se simuló contra 29
+  turnos reales y producía faltantes falsos de hasta −$23.700, porque asume que la plata se queda
+  cuando en realidad se retira.
+- **Sin decidir todavía:** a quién se le atribuye el movimiento (el cajero que abre es el único
+  presente, pero no es quien retiró) y qué pasa si el fondo declarado es **mayor** que el cierre
+  anterior — hoy B40 lo avisa en rojo; como entrada de plata sin origen, probablemente deba
+  registrarse como entrada y quedar marcado para el admin.
+
+---
+
+## 👤 IDENTIDAD DE USUARIO (2026-08-30) — B51–B52
+
+> Los dos salieron de la pasada de QA de B49/M11, mirando `public.users` en producción.
+> Ninguno está arreglado. Tocan auth, así que el fix va con prueba, no de apuro.
+
+### B51 · Un nombre de usuario borrado no se puede volver a usar nunca 🟠
+- **Dónde:** el índice `users_username_key` en la base es `UNIQUE (username)` a secas,
+  mientras que el borrado de usuarios es **lógico** (`users.deleted_at`, ver
+  `migration_sesiones_y_borrado_usuarios.sql` y `deleteUser` en
+  [`lib/services/users.ts`](../lib/services/users.ts)).
+- **Qué pasa:** la fila borrada sigue ocupando el nombre. Crear de nuevo esa cuenta choca
+  contra el UNIQUE, y `POST /api/usuarios` devuelve 409 "duplicate key".
+- **Impacto real, no teórico:** hay **6 nombres quemados** en producción, y uno es
+  `Santiago` — un cajero de verdad, borrado el 29/07. Si Santiago vuelve a trabajar, su
+  cuenta no se puede recrear con su nombre. Los otros cinco son `admin`, `Admin`,
+  `cajero_test`, `temp_borrar_qa`, `test_admin_temp`.
+- **Por qué el borrado es lógico y no se cambia:** `cash_sessions.user_id` y
+  `cerrado_por_user_id` tienen FK a `users.id`. Un DELETE real rompería el historial de
+  caja. La decisión de fondo está bien; lo que falta es que el UNIQUE la acompañe.
+- **Fix propuesto:** reemplazar la constraint por un índice único **parcial**, para que la
+  unicidad valga solo entre las cuentas vivas:
+  ```sql
+  ALTER TABLE users DROP CONSTRAINT users_username_key;
+  CREATE UNIQUE INDEX users_username_activos_key
+    ON users (username) WHERE deleted_at IS NULL;
+  ```
+- **Estado del código para ese cambio (verificado hoy):** la única consulta a `users` por
+  nombre es `verifyCredentials`, y ya filtra `deleted_at IS NULL` antes del `.single()`, así
+  que un nombre reusado no rompe el login. La otra búsqueda por `username` que hay en el
+  repo (`app/api/auth/login/route.ts`) es sobre `login_attempts`, que no tiene borrado
+  lógico y no se ve afectada. El riesgo no es el código de hoy: es que mañana alguien
+  agregue un `.eq("username", …)` sobre `users` sin el filtro y se encuentre dos filas.
+
+### B52 · El usuario es sensible a mayúsculas al entrar 🟡
+- **Dónde:** `verifyCredentials` en [`lib/services/users.ts`](../lib/services/users.ts) hace
+  `.eq("username", username.trim())`, y el UNIQUE de la base también es case-sensitive.
+- **Qué pasa:** un cajero que tipea `lucas` en vez de `Lucas` recibe "Credenciales
+  incorrectas", igual que si se hubiera equivocado de clave. En producción **coexisten
+  `admin` y `Admin`** como dos filas distintas, que es la prueba de que la base lo permite.
+- **Impacto:** fricción en hora pico y un mensaje de error que miente sobre la causa. No
+  toca la plata, por eso es 🟡 y no 🟠.
+- **Fix propuesto:** normalizar el nombre a minúsculas al crear y al comparar (o índice
+  único sobre `lower(username)`), guardando aparte el nombre con el formato lindo para
+  mostrarlo. Va junto con B51: son la misma constraint.
+
+---
+
+## 🔔 CENTRO DE NOTIFICACIONES DEL NEGOCIO (2026-08-30) — M11
+
+### M11 · Última conexión por usuario + aviso de login fuera de horario
+- **Por qué:** el kiosco es nocturno y el dueño no está presente todas las noches. Hoy no hay
+  forma de saber cuándo entró cada cajero al sistema sin abrir la base. Un login a las 11 de la
+  mañana no es necesariamente un robo, pero es algo que el dueño quiere ver.
+- **Horario normal de trabajo:** **18:30 a 03:30**, hora de Rivera (`America/Montevideo`, UTC−3).
+  La ventana cruza la medianoche, así que la comparación es `minutos ≥ 18:30 OR minutos ≤ 03:30`.
+- **Zona horaria:** el server corre en UTC y en el código **no había ningún manejo de TZ**.
+  Comparar la hora cruda correría la ventana 3 horas y haría que las alertas salieran todas mal.
+  Se centraliza en [`lib/horarioKiosco.ts`](../lib/horarioKiosco.ts) con `Intl` y `hourCycle: h23`.
+- **Última conexión:** **no se agrega columna a `users`.** `user_sessions` ya guarda `created_at`,
+  `ip_address` y `user_agent` en cada login (ver `migration_sesiones_y_borrado_usuarios.sql`);
+  la última conexión es el `max(created_at)` por usuario. Un `last_login_at` paralelo sería
+  estado duplicado que se desincroniza a la primera excepción.
+- **Alcance del aviso:** solo rol `cajero`. El admin entra a cualquier hora a mirar reportes;
+  notificar eso sería ruido que tapa las alertas que importan.
+- **Tabla `notifications`:** genérica desde el arranque (`tipo`, `severidad`, `titulo`, `mensaje`,
+  `metadata` jsonb), porque el destino es un canal de avisos del negocio, no solo de logins.
+  Migración: [`lib/sql/migration_m11_notificaciones.sql`](../lib/sql/migration_m11_notificaciones.sql).
+- **Dónde se ve:** nueva hoja **Reportes → Notificaciones**, admin-only, con badge de no leídas en
+  el nav. `/api/notificaciones` se agrega a `ADMIN_ONLY_ROUTES` en `middleware.ts` — `/reportes` ya
+  estaba, pero un endpoint nuevo bajo un prefijo no listado queda abierto a los cajeros.
+- **No bloquea el login:** el insert de la notificación va en try/catch dentro de
+  `app/api/auth/login/route.ts`. Si la notificación falla, el cajero entra igual — prioridad #1 es
+  que la caja no se trabe en hora pico.
+
+---
+
 ## 💡 OPORTUNIDADES DE MEJORA (no son bugs, suman a las prioridades)
 
 | ID | Mejora | Prioridad de negocio | Cerrado en |
@@ -545,6 +853,7 @@ Salieron de auditar el fix de B26 con Opus. Son **pre-existentes**, no los intro
 | **M8** | Guardar **moneda + pagado + vuelto** en cada venta | 💵 Cuadre | Fase 1.2 |
 | **M9** | **Impresión de ticket / comanda** (opcional, según necesidad) | 🧾 Extra | — |
 | **M10** | **Rediseño UI del POS** — grid de botones por categoría, panel de cobro colapsable en modal, atajos visibles en pantalla. Elimina la búsqueda como flujo principal. | ⚡ Rápido | Fase 3.0 |
+| **M11** | **Última conexión por usuario + centro de notificaciones** (aviso de login fuera de 18:30–03:30) | 👥 Turnos + 🔒 Control | 2026-08-30 |
 
 ---
 

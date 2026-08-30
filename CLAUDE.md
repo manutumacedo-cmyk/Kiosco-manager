@@ -59,6 +59,27 @@ cobro, rota por carrito). `create_sale_atomic` dedupea + unique index parcial + 
 
 Otros pendientes no-críticos: B19, B21, B22, B27, B30 (🟠/🟡) y B31 (carpeta `web/` duplicada).
 
+### Pasada cross-moneda (2026-08-27) — B40–B45
+Auditoría del camino de las dos monedas **contra la base de producción**. El álgebra de dos
+cajones estaba bien; fallaban las entradas y la presentación.
+
+- ✅ **B41** — el historial mostraba `total` (que está en UYU) con símbolo R$. Una venta de $300
+  pagada en reales se listaba como "R$ 300" cuando entraron R$40. Medido: el historial exageraba
+  los reales **7×** (R$1.390 mostrados vs R$188 reales). Era el síntoma que originó el reporte.
+- ✅ **B42** — el neto BRL negativo (paga en pesos, vuelto en reales) desaparecía del historial.
+- ✅ **B43** — `pago justo` y `vuelto` en reales guardaban `total / tasa` sin redondear, generando
+  montos no entregables (R$42,86). 48% de las ventas en BRL. Ahora se redondea a R$0,05.
+- ✅ **B44** — el arqueo en pesos comparaba contra cero exacto y pedía nota por error de float.
+- 🟡 **B40** — el retiro de recaudación entre turnos no deja rastro. Se muestra cuánto se retiró
+  al abrir; **falta persistirlo** como movimiento (necesita decisión sobre el flujo de cierre).
+- 🟡 **B45** — solo 1 turno de 77 registró movimientos en BRL. No es código, es descubribilidad.
+
+**Probado en browser** (Playwright, sesión real, datos de producción, sin escribir nada):
+B41 se ve como `$ 100 + R$ 13,33` en el turno del 21/08; B42 muestra "Faltó R$ 30,00"; B43 da
+montos entregables y el botón de un toque ya no se deshabilita (con tasa 7,5 estaba inhabilitado
+en 5 de 6 totales probados). **Sin probar en browser: B40 y B44** — el form de apertura y el
+modal de cierre requieren cerrar el turno abierto de producción.
+
 ## gstack
 Comandos namespaceados con prefijo `gstack-` (instalado con `./setup --prefix`).
 Use /gstack-browse for all web browsing. Never use mcp__claude-in-chrome__* tools.

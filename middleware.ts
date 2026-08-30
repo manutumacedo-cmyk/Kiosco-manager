@@ -7,7 +7,13 @@ const SESSION_CHECK_COOKIE_NAME = "24siete_session_check";
 const SESSION_CHECK_INTERVAL_MS = 3 * 60 * 1000; // revalidar sesión contra la DB cada ~3 min
 
 // Rutas accesibles solo por admin (páginas y API routes bajo ese prefijo)
-const ADMIN_ONLY_ROUTES = ["/reportes", "/historial", "/usuarios", "/api/usuarios"];
+const ADMIN_ONLY_ROUTES = [
+  "/reportes",
+  "/historial",
+  "/usuarios",
+  "/api/usuarios",
+  "/api/notificaciones", // M11 — avisos del negocio, solo el dueño los ve
+];
 
 function getSecret(): Uint8Array {
   const secret = process.env.AUTH_SECRET;

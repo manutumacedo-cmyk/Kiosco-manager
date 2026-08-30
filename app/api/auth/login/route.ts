@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createToken, setAuthCookie } from "@/lib/services/authService";
 import { verifyCredentials } from "@/lib/services/users";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { notificarLoginFueraDeHorario } from "@/lib/services/notifications";
+import { estaEnHorario } from "@/lib/horarioKiosco";
 
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutos
 const MAX_ATTEMPTS = 5;
@@ -75,6 +77,26 @@ export async function POST(request: NextRequest) {
       .single();
     if (sessionError || !session) {
       throw new Error(sessionError?.message ?? "No se pudo crear la sesión");
+    }
+
+    // M11 — aviso de login fuera del horario de trabajo (18:30-03:30, hora de Rivera).
+    // Solo cajeros: el dueño entra a cualquier hora a mirar reportes y notificar eso
+    // sería ruido que tapa las alertas que importan. Va en try/catch: si el insert
+    // falla, el cajero entra igual — que la caja no se trabe en hora pico está por
+    // encima de registrar la alerta.
+    const ahora = new Date();
+    if (user.role === "cajero" && !estaEnHorario(ahora)) {
+      try {
+        await notificarLoginFueraDeHorario({
+          userId: user.id,
+          username: user.username,
+          fecha: ahora,
+          ip,
+          userAgent: request.headers.get("user-agent"),
+        });
+      } catch (error) {
+        console.error("No se pudo registrar el aviso de login fuera de horario:", error);
+      }
     }
 
     const token = await createToken({

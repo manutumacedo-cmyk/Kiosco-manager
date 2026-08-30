@@ -5,7 +5,10 @@ export interface SessionTotals {
   total_ventas: number;
   total_efectivo_uyu: number;
   total_efectivo_brl: number; // en BRL (neto: pagado − vuelto en BRL)
-  total_digital: number;
+  total_digital: number;            // TODO lo digital, valuado en UYU (no cambia: sostiene el invariante)
+  total_digital_uyu: number;        // digital cobrado en pesos (debito, credito, transferencia)
+  total_digital_brl: number;        // digital cobrado en reales (PIX), EN R$
+  total_digital_brl_en_uyu: number; // ese mismo PIX valuado en UYU, para cuadrar contra total_digital
   cantidad_ventas: number;
   total_brl_en_uyu: number;   // cajón BRL valuado en UYU (Σ mov_brl × tasa) — para el invariante
   total_salidas_uyu: number;  // salidas del local en pesos durante el turno
@@ -36,7 +39,7 @@ export async function getSessionTotals(sessionId: string): Promise<SessionTotals
   const [salesRes, outflowsRes] = await Promise.all([
     supabase
       .from("sales")
-      .select("total, metodo_pago, mov_efectivo_uyu, mov_efectivo_brl, tasa_cambio")
+      .select("total, metodo_pago, moneda, mov_efectivo_uyu, mov_efectivo_brl, tasa_cambio")
       .eq("session_id", sessionId)
       .eq("estado", "activa"),
     supabase
@@ -70,9 +73,22 @@ export async function getSessionTotals(sessionId: string): Promise<SessionTotals
   const total_efectivo_uyu = sales.reduce((sum, s) => sum + Number(s.mov_efectivo_uyu || 0), 0);
   const total_efectivo_brl = sales.reduce((sum, s) => sum + Number(s.mov_efectivo_brl || 0), 0);
 
-  const total_digital = sales
-    .filter((s) => s.metodo_pago !== "efectivo")
-    .reduce((sum, s) => sum + Number(s.total || 0), 0);
+  // Digital = todo lo que no entra al cajon. `total` esta SIEMPRE en UYU (B41), asi que
+  // este numero sigue siendo el mismo de antes y el invariante de consistencia no se mueve.
+  const digitales = sales.filter((s) => s.metodo_pago !== "efectivo");
+  const total_digital = digitales.reduce((sum, s) => sum + Number(s.total || 0), 0);
+
+  // Desglose por moneda de cobro. PIX cae en una cuenta brasilena en reales: para
+  // conciliar ese saldo hay que saber cuantos R$ entraron, no cuantos pesos valia el
+  // carrito. Se derivan de la tasa que quedo guardada en cada venta.
+  const digitalesBrl = digitales.filter((s) => s.moneda === "BRL");
+  const total_digital_brl_en_uyu = digitalesBrl.reduce((sum, s) => sum + Number(s.total || 0), 0);
+  const total_digital_uyu = total_digital - total_digital_brl_en_uyu;
+  const total_digital_brl = digitalesBrl.reduce((sum, s) => {
+    const tasa = Number(s.tasa_cambio || 0);
+    // Sin tasa no se puede convertir. Se omite en vez de inventar un numero.
+    return tasa > 0 ? sum + Number(s.total || 0) / tasa : sum;
+  }, 0);
 
   // Cajón BRL valuado en UYU, a la tasa de cada venta — para el invariante de consistencia.
   const total_brl_en_uyu = sales.reduce(
@@ -85,6 +101,9 @@ export async function getSessionTotals(sessionId: string): Promise<SessionTotals
     total_efectivo_uyu,
     total_efectivo_brl,
     total_digital,
+    total_digital_uyu,
+    total_digital_brl,
+    total_digital_brl_en_uyu,
     cantidad_ventas: sales.length,
     total_brl_en_uyu,
     total_salidas_uyu,
@@ -238,6 +257,28 @@ export async function getClosedSessions(limit = 10, userId?: string | null): Pro
 
   if (error) throw new Error(error.message);
   return (data ?? []) as CashSession[];
+}
+
+/**
+ * Último turno cerrado, sin filtrar por cajero. A diferencia de `getClosedSessions`, esta
+ * NO filtra por `user_id`: el cajón de efectivo es UNO solo y físico, así que el turno
+ * anterior es el anterior real, aunque lo haya cerrado otra persona.
+ *
+ * Se usa en la apertura para mostrar con cuánto cerró el cajón y calcular cuánto se retiró
+ * (B40). OJO: el contado del cierre NO es el fondo del turno siguiente — entre medio se
+ * retira la recaudación. Se muestra como referencia, nunca se precarga como valor.
+ */
+export async function getLastClosedSession(): Promise<CashSession | null> {
+  const { data, error } = await supabase
+    .from("cash_sessions")
+    .select("*")
+    .eq("estado", "cerrada")
+    .order("cierre_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data as CashSession | null;
 }
 
 /**

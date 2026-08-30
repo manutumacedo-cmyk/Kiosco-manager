@@ -59,7 +59,10 @@ export interface CashSession {
   total_ventas: number | null;
   total_efectivo_uyu: number | null;
   total_efectivo_brl: number | null; // BRL neto: Σ(pagado BRL) − Σ(vuelto BRL)
-  total_digital: number | null;
+  total_digital: number | null;            // todo lo digital, valuado en UYU
+  total_digital_uyu: number | null;        // digital cobrado en pesos
+  total_digital_brl: number | null;        // digital cobrado en reales (PIX), EN R$ (B46)
+  total_digital_brl_en_uyu: number | null; // ese PIX valuado en UYU
   cantidad_ventas: number | null;
   efectivo_contado_uyu: number | null;  // arqueo: pesos contados al cierre (B28)
   efectivo_contado_brl: number | null;  // arqueo: reales contados al cierre
@@ -102,6 +105,12 @@ export interface Sale {
   pagado: number | null;
   vuelto: number | null;
   vuelto_moneda: 'UYU' | 'BRL' | null; // NULL = UYU (default); 'BRL' cuando el vuelto se dio en reales
+  // Movimiento físico NETO por cajón (entra +, sale −), derivado por la DB (columnas
+  // GENERATED, ver B23/B24/B25). `total` está SIEMPRE en UYU — es la suma de precios del
+  // carrito, no lo que entró al cajón. Para saber cuántos reales entraron de verdad hay
+  // que mirar mov_efectivo_brl, no `total` con `moneda === 'BRL'` (B41).
+  mov_efectivo_uyu?: number;
+  mov_efectivo_brl?: number;
   estado: string; // 'activa' | 'anulada'
   anulada_por: string | null;  // quién anuló la venta (B30)
   anulada_at: string | null;   // cuándo se anuló (B30)
@@ -186,4 +195,23 @@ export interface ExchangeRateConfig {
   currency_to: string;
   rate: number;
   updated_at: string;
+}
+
+/**
+ * Aviso del negocio para el admin (M11). Genérico por `tipo` + `metadata`: el primero es
+ * 'login_fuera_horario', pero la tabla está pensada para lo que venga (descuadres grandes,
+ * anulaciones tardías) sin migración nueva.
+ */
+export interface Notification {
+  id: string;
+  tipo: string;
+  severidad: "info" | "alerta" | "critico";
+  titulo: string;
+  mensaje: string;
+  /** Usuario al que se REFIERE el aviso, no el destinatario. */
+  user_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  leida_at: string | null;
+  leida_por: string | null;
 }

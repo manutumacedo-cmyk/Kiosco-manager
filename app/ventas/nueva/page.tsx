@@ -17,6 +17,15 @@ type Currency = "UYU" | "BRL";
 // Solo para UYU — los reales (BRL) mantienen centavos.
 const roundUYU = (n: number) => Math.round(n);
 
+// La moneda más chica que circula en Brasil es R$0,05: cualquier monto en reales que no
+// sea múltiplo de 5 centavos NO se puede entregar ni recibir en billetes/monedas. Antes
+// se guardaba `total / tasa` crudo (ej. R$42,857 → la DB anotaba 42,86 y el cliente había
+// entregado R$45), así que el cajón siempre tenía más reales que el sistema. Ver B43.
+// Se redondea al múltiplo MÁS CERCANO, no hacia arriba: así el error es simétrico y no
+// acumula sesgo a favor ni en contra del kiosco.
+const BRL_MIN_COIN = 0.05;
+const roundBRL = (n: number) => Number((Math.round(n / BRL_MIN_COIN) * BRL_MIN_COIN).toFixed(2));
+
 // Íconos por categoría (solo presentación de tabs)
 const TAB_ICONS: Record<string, string> = {
   Bebidas: "🥤",
@@ -335,14 +344,12 @@ export default function NuevaVentaPage() {
     return paidInUYU - total;
   }, [paidAmount, paidCurrency, total, exchangeRate]);
 
-  // Monto exacto en BRL para "pago justo". Solo es pagable de verdad con
-  // billetes/monedas reales si los centavos son múltiplo de 5 (moneda mínima
-  // en circulación, R$0.05) — si no, el cajero no puede recibir ese monto
-  // exacto y el botón de un toque queda inhabilitado (causa real del
-  // descuadre en reales: se usaba igual con un billete redondo y el vuelto
-  // nunca se registraba).
-  const brlPagoJustoMonto = total / exchangeRate;
-  const brlPagoJustoExacto = Math.round(brlPagoJustoMonto * 100) % 5 === 0;
+  // Monto en BRL para "pago justo", ya redondeado a algo que el cajero puede recibir de
+  // verdad (múltiplo de R$0,05). Antes se calculaba `total / tasa` crudo y, si no daba un
+  // monto entregable, el botón se deshabilitaba: media solución, porque dejaba al cajero
+  // sin el camino de un toque en la mitad de las ventas en reales, justo en hora pico.
+  // Ahora siempre hay un monto válido y es el que se registra. Ver B43.
+  const brlPagoJustoMonto = roundBRL(total / exchangeRate);
 
   // Único punto que registra una venta. Recibe el pago EXPLÍCITO (mata B24/B25:
   // no hay default ambiente de moneda; cada venta nace de una acción explícita).
@@ -487,15 +494,29 @@ export default function NuevaVentaPage() {
     }
   }
 
+  // Métodos digitales que cobran en reales. PIX es un riel brasileño: la plata cae en
+  // una cuenta de Brasil en R$, no en pesos. Se guarda con moneda 'BRL' para poder
+  // conciliar ese saldo aparte del digital en pesos (débito, crédito, transferencia).
+  // No toca el cajón físico: mov_efectivo_brl solo suma cuando metodo_pago = 'efectivo'
+  // (ver lib/sql/00-schema-completo.sql). El monto en reales se deriva de tasa_cambio,
+  // que ya queda guardada en cada venta.
+  const METODOS_DIGITALES_BRL = new Set(["pix"]);
+
   // Acciones terminales (cada una = un pago explícito y completo)
   function cobrarPagoJusto() {
     guardarVenta({ metodo: "efectivo", moneda: "UYU", pagado: total, vuelto: 0, vuelto_moneda: "UYU" });
   }
   function cobrarPagoJustoBRL() {
-    guardarVenta({ metodo: "efectivo", moneda: "BRL", pagado: total / exchangeRate, vuelto: 0, vuelto_moneda: "BRL" });
+    guardarVenta({ metodo: "efectivo", moneda: "BRL", pagado: brlPagoJustoMonto, vuelto: 0, vuelto_moneda: "BRL" });
   }
   function cobrarDigital(metodo: string) {
-    guardarVenta({ metodo, moneda: "UYU", pagado: null, vuelto: null, vuelto_moneda: null });
+    guardarVenta({
+      metodo,
+      moneda: METODOS_DIGITALES_BRL.has(metodo) ? "BRL" : "UYU",
+      pagado: null,
+      vuelto: null,
+      vuelto_moneda: null,
+    });
   }
   function elegirBillete(amount: number, currency: Currency) {
     setPaidAmount(amount);
@@ -525,7 +546,9 @@ export default function NuevaVentaPage() {
       metodo: "efectivo",
       moneda: paidCurrency,
       pagado: paidAmount,
-      vuelto: changeUYU > 0 ? changeUYU / exchangeRate : 0,
+      // Se registra el vuelto que el cajero puede entregar de verdad (múltiplo de R$0,05),
+      // que es el mismo número que muestra el botón. Ver B43.
+      vuelto: changeUYU > 0 ? roundBRL(changeUYU / exchangeRate) : 0,
       vuelto_moneda: "BRL",
     });
   }
@@ -828,7 +851,7 @@ export default function NuevaVentaPage() {
                   ${total} <span className="text-sm font-normal text-[var(--neon-cyan)]/70">UYU</span>
                 </div>
                 <div className="text-xs font-mono text-[var(--text-muted)] mt-1">
-                  ≈ R${(total / exchangeRate).toFixed(2)} BRL
+                  ≈ R${brlPagoJustoMonto.toFixed(2)} BRL
                 </div>
               </div>
             </div>
@@ -887,15 +910,12 @@ export default function NuevaVentaPage() {
                   </button>
                   <button
                     onClick={cobrarPagoJustoBRL}
-                    disabled={saving || !brlPagoJustoExacto}
-                    title={!brlPagoJustoExacto ? "No se puede pagar exacto con billetes/monedas reales — elegí un billete abajo" : undefined}
+                    disabled={saving}
                     className="py-5 rounded-2xl border-2 border-[var(--neon-cyan)] text-[var(--neon-cyan)] font-bold uppercase tracking-wide hover:bg-[var(--neon-cyan)] hover:text-[var(--deep-dark)] active:scale-[0.98] disabled:opacity-40 transition-all"
                   >
                     <div className="text-base leading-tight">PAGO JUSTO</div>
                     <div className="text-xl font-mono mt-0.5">R${brlPagoJustoMonto.toFixed(2)}</div>
-                    <div className="text-[10px] font-normal opacity-80 mt-0.5">
-                      {brlPagoJustoExacto ? "BRL · un toque" : "no hay vuelto exacto ↓"}
-                    </div>
+                    <div className="text-[10px] font-normal opacity-80 mt-0.5">BRL · un toque</div>
                   </button>
                 </div>
 
@@ -1042,7 +1062,7 @@ export default function NuevaVentaPage() {
                         className="py-4 rounded-xl border-2 border-[var(--neon-magenta)] bg-[var(--magenta-glow)] text-[var(--neon-magenta)] font-bold uppercase tracking-wide hover:bg-[var(--neon-magenta)] hover:text-[var(--deep-dark)] disabled:opacity-50 transition-all"
                       >
                         <div>En reales</div>
-                        <div className="font-mono text-lg mt-0.5">R${(changeUYU / exchangeRate).toFixed(2)}</div>
+                        <div className="font-mono text-lg mt-0.5">R${roundBRL(changeUYU / exchangeRate).toFixed(2)}</div>
                       </button>
                     </div>
                   </>
