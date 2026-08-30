@@ -306,3 +306,52 @@ export async function closeCashSession(
 
   if (error) throw new Error(error.message);
 }
+
+/**
+ * B50 · Diferencias entre cajas: cuánto se retiró (o apareció) entre el cierre de un
+ * turno y la apertura del siguiente. Sale de la vista `diferencias_entre_turnos`
+ * (LAG sobre apertura_at — el cajón es uno solo, el turno anterior es el anterior
+ * real aunque lo haya cerrado otra persona).
+ *
+ * Es DERIVADA, no persistida: registrar el retiro como cash_outflow al abrir
+ * corrompería diferencia_uyu/brl, que son GENERATED sobre total_salidas_*.
+ * Solo la consume el panel de admin en /caja.
+ */
+export interface DiferenciaEntreTurnos {
+  turno_id: string;
+  estado: "abierta" | "cerrada";
+  apertura_at: string;
+  abrio: string;
+  cierre_anterior_at: string | null;
+  cerro_anterior: string | null;
+  contado_anterior_uyu: number | null;
+  contado_anterior_brl: number | null;
+  fondo_uyu: number;
+  fondo_brl: number;
+  retiro_uyu: number | null; // >0 salió plata (lo normal) · <0 apareció · null sin conteo previo
+  retiro_brl: number | null;
+}
+
+export async function fetchDiferenciasEntreTurnos(limit = 15): Promise<DiferenciaEntreTurnos[]> {
+  const { data, error } = await supabase
+    .from("diferencias_entre_turnos")
+    .select("*")
+    .order("apertura_at", { ascending: false })
+    .limit(limit);
+
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((r: Record<string, unknown>) => ({
+    turno_id: r.turno_id as string,
+    estado: r.estado as "abierta" | "cerrada",
+    apertura_at: r.apertura_at as string,
+    abrio: r.abrio as string,
+    cierre_anterior_at: (r.cierre_anterior_at as string) ?? null,
+    cerro_anterior: (r.cerro_anterior as string) ?? null,
+    contado_anterior_uyu: r.contado_anterior_uyu == null ? null : Number(r.contado_anterior_uyu),
+    contado_anterior_brl: r.contado_anterior_brl == null ? null : Number(r.contado_anterior_brl),
+    fondo_uyu: Number(r.fondo_uyu ?? 0),
+    fondo_brl: Number(r.fondo_brl ?? 0),
+    retiro_uyu: r.retiro_uyu == null ? null : Number(r.retiro_uyu),
+    retiro_brl: r.retiro_brl == null ? null : Number(r.retiro_brl),
+  }));
+}

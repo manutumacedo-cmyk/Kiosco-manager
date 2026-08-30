@@ -12,7 +12,9 @@ import {
   getLastClosedSession,
   registerCashMovement,
   fetchSessionOutflows,
+  fetchDiferenciasEntreTurnos,
   type SessionTotals,
+  type DiferenciaEntreTurnos,
 } from "@/lib/services/cashSessions";
 import { fetchSalesBySession, cancelSaleOwnTurno } from "@/lib/services/sales";
 import type { CashSession, CashOutflow, Sale, CategoriaSalida } from "@/types";
@@ -102,6 +104,9 @@ export default function CajaClient({
   const [contadoBrl, setContadoBrl] = useState("");
   const [closing, setClosing] = useState(false);
   const [closedSessions, setClosedSessions] = useState<CashSession[]>([]);
+  // B50 · retiro de recaudacion entre turnos, solo admin. Derivado de la vista
+  // diferencias_entre_turnos; ver lib/sql/migration_b50_diferencias_entre_turnos.sql.
+  const [diferencias, setDiferencias] = useState<DiferenciaEntreTurnos[]>([]);
   const [arqueoConfirmado, setArqueoConfirmado] = useState(false);
 
   const [outflows, setOutflows] = useState<CashOutflow[]>([]);
@@ -151,7 +156,12 @@ export default function CajaClient({
       // filtro de ALCANCE, no de PERMISO: el arqueo y las diferencias igual llegaban al
       // cliente. Ahora para un cajero directamente no se pide.
       if (esAdmin) {
-        setClosedSessions(await getClosedSessions(10));
+        const [history, difs] = await Promise.all([
+          getClosedSessions(10),
+          fetchDiferenciasEntreTurnos(12),
+        ]);
+        setClosedSessions(history);
+        setDiferencias(difs);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar sesión");
@@ -1112,6 +1122,76 @@ export default function CajaClient({
                 )}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ──────── DIFERENCIAS ENTRE CAJAS · solo admin (B50) ──────── */}
+      {esAdmin && diferencias.length > 0 && (
+        <div className="border-t border-[var(--slate-gray)] pt-6 space-y-3">
+          <h2 className="text-sm uppercase tracking-wide text-[var(--text-secondary)] font-semibold">
+            Diferencias entre cajas
+          </h2>
+          <p className="text-xs text-[var(--text-muted)]">
+            Lo que se contó al cerrar un turno contra el fondo declarado al abrir el
+            siguiente. Positivo = se retiró recaudación; en rojo = apareció plata sin registrar.
+          </p>
+          <div className="space-y-2">
+            {diferencias.map((d) => {
+              const sinConteo = d.retiro_uyu == null && d.retiro_brl == null;
+              const aparecio =
+                (d.retiro_uyu != null && d.retiro_uyu <= -1) ||
+                (d.retiro_brl != null && d.retiro_brl <= -0.05);
+              const retiro =
+                (d.retiro_uyu != null && d.retiro_uyu >= 1) ||
+                (d.retiro_brl != null && d.retiro_brl >= 0.05);
+              return (
+                <div
+                  key={d.turno_id}
+                  className="data-card bg-[var(--carbon-gray)] border border-[var(--slate-gray)] rounded-xl px-4 py-3 flex items-center justify-between gap-4 text-sm"
+                >
+                  <div className="min-w-0">
+                    <p className="font-semibold truncate">
+                      {d.cerro_anterior ?? "?"} → {d.abrio}
+                      {d.estado === "abierta" && (
+                        <span className="ml-2 text-xs text-[var(--neon-cyan)] uppercase">turno actual</span>
+                      )}
+                    </p>
+                    <p className="text-xs text-[var(--text-secondary)]">
+                      {fmtDate(d.apertura_at)}
+                      {d.contado_anterior_uyu != null && (
+                        <> · cerró $ {fmt(d.contado_anterior_uyu)} → abrió $ {fmt(d.fondo_uyu)}</>
+                      )}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0 font-mono">
+                    {sinConteo ? (
+                      <span className="text-xs text-[var(--text-muted)]">sin conteo previo</span>
+                    ) : aparecio ? (
+                      <>
+                        <p className="text-[var(--error)] font-bold">
+                          {d.retiro_uyu != null && d.retiro_uyu <= -1 && <>+ $ {fmt(Math.abs(d.retiro_uyu))}</>}
+                          {d.retiro_uyu != null && d.retiro_uyu <= -1 && d.retiro_brl != null && d.retiro_brl <= -0.05 && " · "}
+                          {d.retiro_brl != null && d.retiro_brl <= -0.05 && <>+ R$ {fmtBRL(Math.abs(d.retiro_brl))}</>}
+                        </p>
+                        <p className="text-[10px] uppercase text-[var(--error)]">apareció plata</p>
+                      </>
+                    ) : retiro ? (
+                      <>
+                        <p className="text-[var(--warning)] font-bold">
+                          {d.retiro_uyu != null && d.retiro_uyu >= 1 && <>− $ {fmt(d.retiro_uyu)}</>}
+                          {d.retiro_uyu != null && d.retiro_uyu >= 1 && d.retiro_brl != null && d.retiro_brl >= 0.05 && " · "}
+                          {d.retiro_brl != null && d.retiro_brl >= 0.05 && <>− R$ {fmtBRL(d.retiro_brl)}</>}
+                        </p>
+                        <p className="text-[10px] uppercase text-[var(--text-muted)]">retiro</p>
+                      </>
+                    ) : (
+                      <span className="text-[var(--success)] text-xs">✓ sin retiro</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
