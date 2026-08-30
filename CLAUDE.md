@@ -57,8 +57,11 @@ opera con ella todas las noches. Lo grande de la pasada de endurecimiento está 
 - **M11** — última conexión por usuario + aviso de login fuera de horario (18:30–03:30,
   hora de Rivera, `lib/horarioKiosco.ts` — usar ese helper para toda comparación horaria).
 
-🟡 En curso: **asistencia** (registro entrada/salida del personal, rama `feat/asistencia`
-mergeada en local, sin pushear — la trabaja otra sesión).
+- **M12** — asistencia del personal en `/perfil`: llegada **obligatoria** al iniciar sesión
+  (cookie + gate en middleware), salida opcional con panel de tres opciones al desloguear, y
+  aviso con hora exacta de cada llegada y salida en el centro de notificaciones. Incluye
+  `feat/asistencia` (PR #9) mergeado dentro. **Rama `feat/perfil-asistencia`, PR #10 abierto.**
+  Su migración ya está aplicada: la de PR #9 nunca se había corrido y la tabla no existía.
 
 ⏳ Pendientes que importan, en orden:
 - **B36/B5 + B47** 🔴 — RLS abierta (`USING (true)`) y anon key pública: todo el corte de
@@ -71,8 +74,9 @@ mergeada en local, sin pushear — la trabaja otra sesión).
 - Decisión de producto pendiente: el panel del **turno abierto** todavía muestra al cajero
   efectivo/fondo/entradas/salidas — puede anotarlos antes de cerrar y burlar el conteo a
   ciegas. Propuesta: dejarle solo `Ventas realizadas` y `Total ventas`.
-- Limpieza menor: 1 notificación de QA de `Test_Caja` en `notifications`; B19, B21, B22,
-  B30, B31 (carpeta `web/` duplicada).
+- Limpieza menor: B19, B21, B22, B30, B31 (carpeta `web/` duplicada). Los datos de QA ya
+  se limpiaron (usuarios temporales, avisos de prueba y el turno de caja que había quedado
+  abierto y bloqueaba la apertura).
 
 ## gstack
 Comandos namespaceados con prefijo `gstack-` (instalado con `./setup --prefix`).
