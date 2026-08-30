@@ -11,8 +11,6 @@ import {
   CashboxIcon,
   ComboIcon,
   ChartIcon,
-  HistoryIcon,
-  CashFlowIcon,
   UsersIcon,
   LogoutIcon,
 } from "./Icons";
@@ -26,6 +24,8 @@ interface NavItem {
   Icon: React.ComponentType<{ className?: string; size?: number }>;
   accent: Accent;
   roles: Role[];
+  /** Prefijo para marcar activo cuando la rama tiene hojas (ej. Reportes). */
+  activePrefix?: string;
 }
 
 // Todas las opciones del home, en la barra de arriba. Acentos espejados con el
@@ -34,9 +34,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/ventas/nueva", label: "Nueva Venta", Icon: CartIcon, accent: "magenta", roles: ["admin", "cajero"] },
   { href: "/productos", label: "Productos", Icon: BoxIcon, accent: "cyan", roles: ["admin", "cajero"] },
   { href: "/combos", label: "Combos", Icon: ComboIcon, accent: "magenta", roles: ["admin", "cajero"] },
-  { href: "/reportes/hoy", label: "Reportes", Icon: ChartIcon, accent: "magenta", roles: ["admin"] },
-  { href: "/reportes/ventas", label: "Historial", Icon: HistoryIcon, accent: "cyan", roles: ["admin"] },
-  { href: "/reportes/movimientos", label: "Movimientos", Icon: CashFlowIcon, accent: "magenta", roles: ["admin"] },
+  { href: "/reportes/hoy", label: "Reportes", Icon: ChartIcon, accent: "magenta", roles: ["admin"], activePrefix: "/reportes" },
   { href: "/usuarios", label: "Usuarios", Icon: UsersIcon, accent: "magenta", roles: ["admin"] },
 ];
 
@@ -72,10 +70,12 @@ export default function CyberNav({ role }: Props) {
 
   if (pathname.startsWith("/login")) return null;
 
-  // /reportes/hoy y /reportes/ventas comparten prefijo: matcheo exacto del segmento
-  // para que "Reportes" e "Historial" no queden activos los dos a la vez.
-  const isActive = (href: string) =>
-    pathname === href || pathname.startsWith(href + "/");
+  // Una rama queda activa en cualquiera de sus hojas (activePrefix); una hoja suelta,
+  // solo en su propia ruta y sus sub-rutas.
+  const isActive = (href: string, activePrefix?: string) =>
+    activePrefix
+      ? pathname === activePrefix || pathname.startsWith(activePrefix + "/")
+      : pathname === href || pathname.startsWith(href + "/");
 
   const visible = NAV_ITEMS.filter((item) => item.roles.includes(role));
 
@@ -89,9 +89,9 @@ export default function CyberNav({ role }: Props) {
 
         {/* Navegación */}
         <div className="flex flex-wrap items-center gap-2">
-          {visible.map(({ href, label, Icon, accent }) => {
+          {visible.map(({ href, label, Icon, accent, activePrefix }) => {
             const accentVar = accent === "cyan" ? "--neon-cyan" : "--neon-magenta";
-            const active = isActive(href);
+            const active = isActive(href, activePrefix);
             return (
               <Link
                 key={href}
