@@ -107,6 +107,9 @@ export default function CajaClient({
   // B50 · retiro de recaudacion entre turnos, solo admin. Derivado de la vista
   // diferencias_entre_turnos; ver lib/sql/migration_b50_diferencias_entre_turnos.sql.
   const [diferencias, setDiferencias] = useState<DiferenciaEntreTurnos[]>([]);
+  // Pestania activa del admin: "cajas" (turno actual + historial) o "diferencias".
+  // El cajero no tiene pestanias — solo opera su turno.
+  const [vistaAdmin, setVistaAdmin] = useState<"cajas" | "diferencias">("cajas");
   const [arqueoConfirmado, setArqueoConfirmado] = useState(false);
 
   const [outflows, setOutflows] = useState<CashOutflow[]>([]);
@@ -158,7 +161,7 @@ export default function CajaClient({
       if (esAdmin) {
         const [history, difs] = await Promise.all([
           getClosedSessions(10),
-          fetchDiferenciasEntreTurnos(12),
+          fetchDiferenciasEntreTurnos(30),
         ]);
         setClosedSessions(history);
         setDiferencias(difs);
@@ -355,6 +358,8 @@ export default function CajaClient({
     (totals?.total_salidas_brl ?? 0) !== 0 ||
     (totals?.total_entradas_brl ?? 0) !== 0;
 
+  const vistaCajas = !esAdmin || vistaAdmin === "cajas";
+
   const contadoUyuNum = contadoUyu.trim() === "" ? null : Math.round(Number(contadoUyu));
   const contadoBrlNum = contadoBrl.trim() === "" ? null : Number(contadoBrl.replace(",", "."));
   const difUyu = contadoUyuNum === null ? null : contadoUyuNum - esperadoUyu;
@@ -401,8 +406,48 @@ export default function CajaClient({
         </div>
       )}
 
+      {/* Pestanias del admin: operar la caja vs. auditar las diferencias */}
+      {esAdmin && (
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => setVistaAdmin("cajas")}
+            aria-pressed={vistaAdmin === "cajas"}
+            className={`data-card rounded-xl border p-4 text-left transition-all ${
+              vistaAdmin === "cajas"
+                ? "border-[var(--neon-cyan)] bg-[var(--carbon-gray)] shadow-[0_0_12px_-2px_var(--neon-cyan)]"
+                : "border-[var(--slate-gray)] bg-[var(--carbon-gray)] opacity-60 hover:opacity-100"
+            }`}
+          >
+            <p className={`text-sm font-bold uppercase tracking-wide ${vistaAdmin === "cajas" ? "neon-text-cyan" : "text-[var(--text-secondary)]"}`}>
+              Cajas
+            </p>
+            <p className="text-xs text-[var(--text-muted)] mt-1">
+              Caja actual e historial de turnos
+            </p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setVistaAdmin("diferencias")}
+            aria-pressed={vistaAdmin === "diferencias"}
+            className={`data-card rounded-xl border p-4 text-left transition-all ${
+              vistaAdmin === "diferencias"
+                ? "border-[var(--warning)] bg-[var(--carbon-gray)] shadow-[0_0_12px_-2px_var(--warning)]"
+                : "border-[var(--slate-gray)] bg-[var(--carbon-gray)] opacity-60 hover:opacity-100"
+            }`}
+          >
+            <p className={`text-sm font-bold uppercase tracking-wide ${vistaAdmin === "diferencias" ? "text-[var(--warning)]" : "text-[var(--text-secondary)]"}`}>
+              Diferencias entre cajas
+            </p>
+            <p className="text-xs text-[var(--text-muted)] mt-1">
+              Lo retirado entre un cierre y la apertura siguiente
+            </p>
+          </button>
+        </div>
+      )}
+
       {/* ──────── CERRADA ──────── */}
-      {pageState === "cerrada" && (
+      {vistaCajas && pageState === "cerrada" && (
         <div className="data-card bg-[var(--carbon-gray)] border border-[var(--slate-gray)] rounded-xl p-6 space-y-6">
           <div className="flex items-center gap-3">
             <span className="w-3 h-3 rounded-full bg-red-500 inline-block" />
@@ -522,7 +567,7 @@ export default function CajaClient({
       )}
 
       {/* ──────── ABIERTA ──────── */}
-      {pageState === "abierta" && session && (
+      {vistaCajas && pageState === "abierta" && session && (
         <div className="space-y-4">
           <div className="data-card bg-[var(--carbon-gray)] border border-[var(--slate-gray)] rounded-xl p-6 space-y-5">
             <div className="flex items-center justify-between">
@@ -703,7 +748,7 @@ export default function CajaClient({
       )}
 
       {/* ──────── CERRANDO ──────── */}
-      {pageState === "cerrando" && session && totals && (
+      {vistaCajas && pageState === "cerrando" && session && totals && (
         <div className="space-y-4">
           <div className="data-card bg-[var(--carbon-gray)] border border-[var(--slate-gray)] rounded-xl p-6 space-y-4">
             <h2 className="text-sm uppercase tracking-wide text-[var(--text-secondary)] font-semibold">
@@ -977,7 +1022,7 @@ export default function CajaClient({
       )}
 
       {/* ──────── HISTORIAL ──────── */}
-      {esAdmin && closedSessions.length > 0 && (
+      {vistaCajas && esAdmin && closedSessions.length > 0 && (
         <div className="border-t border-[var(--slate-gray)] pt-6 space-y-3">
           <h2 className="text-sm uppercase tracking-wide text-[var(--text-secondary)] font-semibold">
             Historial de turnos
@@ -1127,15 +1172,17 @@ export default function CajaClient({
       )}
 
       {/* ──────── DIFERENCIAS ENTRE CAJAS · solo admin (B50) ──────── */}
-      {esAdmin && diferencias.length > 0 && (
-        <div className="border-t border-[var(--slate-gray)] pt-6 space-y-3">
-          <h2 className="text-sm uppercase tracking-wide text-[var(--text-secondary)] font-semibold">
-            Diferencias entre cajas
-          </h2>
+      {esAdmin && vistaAdmin === "diferencias" && (
+        <div className="space-y-3">
           <p className="text-xs text-[var(--text-muted)]">
             Lo que se contó al cerrar un turno contra el fondo declarado al abrir el
             siguiente. Positivo = se retiró recaudación; en rojo = apareció plata sin registrar.
           </p>
+          {diferencias.length === 0 && (
+            <p className="text-sm text-[var(--text-muted)]">
+              Todavía no hay turnos para comparar.
+            </p>
+          )}
           <div className="space-y-2">
             {diferencias.map((d) => {
               const sinConteo = d.retiro_uyu == null && d.retiro_brl == null;
