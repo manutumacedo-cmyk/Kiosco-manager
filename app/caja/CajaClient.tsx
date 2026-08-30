@@ -199,6 +199,9 @@ export default function CajaClient({
         total_efectivo_uyu: 0,
         total_efectivo_brl: 0,
         total_digital: 0,
+        total_digital_uyu: 0,
+        total_digital_brl: 0,
+        total_digital_brl_en_uyu: 0,
         cantidad_ventas: 0,
         total_brl_en_uyu: 0,
         total_salidas_uyu: 0,
@@ -552,9 +555,15 @@ export default function CajaClient({
                   <span>R$ {fmtBRL(totals.total_efectivo_brl)}</span>
                 </div>
                 <div className="flex justify-between text-[var(--text-secondary)]">
-                  <span>Digital / transferencia</span>
-                  <span>$ {fmt(totals.total_digital)}</span>
+                  <span>Digital en pesos</span>
+                  <span>$ {fmt(totals.total_digital_uyu)}</span>
                 </div>
+                {totals.total_digital_brl > 0 && (
+                  <div className="flex justify-between text-[var(--text-secondary)]">
+                    <span>Digital en reales (PIX)</span>
+                    <span>R$ {fmtBRL(totals.total_digital_brl)}</span>
+                  </div>
+                )}
                 {(totals.total_salidas_uyu > 0 || totals.total_salidas_brl > 0) && (
                   <div className="flex justify-between text-[var(--error)]">
                     <span>Salidas del local</span>
@@ -717,9 +726,15 @@ export default function CajaClient({
                 <span>R$ {fmtBRL(totals.total_efectivo_brl)}</span>
               </div>
               <div className="flex justify-between text-[var(--text-secondary)]">
-                <span>Digital / transferencia</span>
-                <span>$ {fmt(totals.total_digital)}</span>
+                <span>Digital en pesos</span>
+                <span>$ {fmt(totals.total_digital_uyu)}</span>
               </div>
+              {totals.total_digital_brl > 0 && (
+                <div className="flex justify-between text-[var(--text-secondary)]">
+                  <span>Digital en reales (PIX)</span>
+                  <span>R$ {fmtBRL(totals.total_digital_brl)}</span>
+                </div>
+              )}
               {(totals.total_salidas_uyu > 0 || totals.total_salidas_brl > 0) && (
                 <div className="flex justify-between text-[var(--error)]">
                   <span>Salidas del local</span>

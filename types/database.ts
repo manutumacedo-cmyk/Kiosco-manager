@@ -59,7 +59,10 @@ export interface CashSession {
   total_ventas: number | null;
   total_efectivo_uyu: number | null;
   total_efectivo_brl: number | null; // BRL neto: Σ(pagado BRL) − Σ(vuelto BRL)
-  total_digital: number | null;
+  total_digital: number | null;            // todo lo digital, valuado en UYU
+  total_digital_uyu: number | null;        // digital cobrado en pesos
+  total_digital_brl: number | null;        // digital cobrado en reales (PIX), EN R$ (B46)
+  total_digital_brl_en_uyu: number | null; // ese PIX valuado en UYU
   cantidad_ventas: number | null;
   efectivo_contado_uyu: number | null;  // arqueo: pesos contados al cierre (B28)
   efectivo_contado_brl: number | null;  // arqueo: reales contados al cierre

@@ -494,6 +494,14 @@ export default function NuevaVentaPage() {
     }
   }
 
+  // Métodos digitales que cobran en reales. PIX es un riel brasileño: la plata cae en
+  // una cuenta de Brasil en R$, no en pesos. Se guarda con moneda 'BRL' para poder
+  // conciliar ese saldo aparte del digital en pesos (débito, crédito, transferencia).
+  // No toca el cajón físico: mov_efectivo_brl solo suma cuando metodo_pago = 'efectivo'
+  // (ver lib/sql/00-schema-completo.sql). El monto en reales se deriva de tasa_cambio,
+  // que ya queda guardada en cada venta.
+  const METODOS_DIGITALES_BRL = new Set(["pix"]);
+
   // Acciones terminales (cada una = un pago explícito y completo)
   function cobrarPagoJusto() {
     guardarVenta({ metodo: "efectivo", moneda: "UYU", pagado: total, vuelto: 0, vuelto_moneda: "UYU" });
@@ -502,7 +510,13 @@ export default function NuevaVentaPage() {
     guardarVenta({ metodo: "efectivo", moneda: "BRL", pagado: brlPagoJustoMonto, vuelto: 0, vuelto_moneda: "BRL" });
   }
   function cobrarDigital(metodo: string) {
-    guardarVenta({ metodo, moneda: "UYU", pagado: null, vuelto: null, vuelto_moneda: null });
+    guardarVenta({
+      metodo,
+      moneda: METODOS_DIGITALES_BRL.has(metodo) ? "BRL" : "UYU",
+      pagado: null,
+      vuelto: null,
+      vuelto_moneda: null,
+    });
   }
   function elegirBillete(amount: number, currency: Currency) {
     setPaidAmount(amount);

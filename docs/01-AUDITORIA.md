@@ -680,10 +680,86 @@ Salieron de auditar el fix de B26 con Opus. Son **pre-existentes**, no los intro
 - **Fix sugerido:** no es código nuevo, es hacer visible el botón de movimiento en el turno abierto y
   sugerirlo al cerrar cuando hay descuadre en reales. Queda anotado, no se resuelve en esta pasada.
 
+### B46 · PIX se guardaba como digital en pesos 🟠
+- **Dónde:** [`app/ventas/nueva/page.tsx`](../app/ventas/nueva/page.tsx) — `cobrarDigital`,
+  que mandaba `moneda: "UYU"` fija para los cuatro métodos digitales.
+- **Qué pasa:** PIX es un riel brasileño: la plata cae en una cuenta de Brasil **en reales**.
+  El POS lo guardaba como peso y lo sumaba a `total_digital` junto con débito, crédito y
+  transferencia. Además `pagado` va en `null` para todo cobro digital, así que **el monto en
+  reales que entró no quedaba registrado en ningún lado**.
+- **Impacto:** El saldo de la cuenta PIX no se puede conciliar contra el sistema. Filtrar
+  reportes por "pix" devuelve pesos, no los R$ que llegaron. No descuadra el cajón físico
+  (`mov_efectivo_brl` solo suma con `metodo_pago = 'efectivo'`, eso ya estaba bien): el hueco
+  es de conciliación bancaria, no de arqueo.
+- **Distinto de B45:** B45 son movimientos de reales **en efectivo** que nadie anota. Acá el
+  problema es que el **reales digital no estaba modelado**.
+- **Fix aplicado:** PIX pasa a guardarse con `moneda = 'BRL'` (`METODOS_DIGITALES_BRL`, pensado
+  para que sumar otro método brasileño sea agregarlo al set). Se agregan tres campos al cierre:
+  `total_digital_uyu`, `total_digital_brl` (en R$) y `total_digital_brl_en_uyu`. El cierre de
+  caja muestra las dos líneas separadas. Migración: `lib/sql/migration_b46_pix_digital_brl.sql`.
+- **Lo que a propósito NO se tocó:** `total_digital` sigue siendo todo lo digital valuado en UYU,
+  así el invariante de consistencia y los turnos ya cerrados no se mueven. Las ventas históricas
+  con PIX quedan como pesos: no se migran, para no alterar arqueos ya firmados. Los reportes
+  siguen 100% en pesos, que es su diseño — meter reales ahí mezclaría monedas.
+- **Monto en R$:** se deriva de `total / tasa_cambio`, usando el snapshot de tasa que ya guarda
+  cada venta (B29). Si el cliente transfirió una cifra redondeada distinta, el registro no va a
+  coincidir al centavo con el extracto. Si eso molesta, el paso siguiente es que el cajero tipee
+  el monto exacto al cobrar.
+
 > **Descartado durante la auditoría:** se sospechó que las ventas viejas con `tasa_cambio` NULL
 > ensuciaban el invariante de consistencia. La base dice **0 ventas sin tasa** — la hipótesis era
 > falsa y no se tocó nada por eso.
 
+
+---
+
+## 🔐 PASADA DE VISIBILIDAD POR ROL EN CAJA (2026-08-30) — B49–B50
+
+> Decisión del dueño: **el descuadre es información del dueño, no del personal.** Un cajero que ve
+> la diferencia en vivo tiene el incentivo de ajustar el conteo hasta que dé cero, y eso rompe
+> justamente lo que el arqueo (B28) vino a medir. Además, el hueco de recaudación entre turnos
+> (B40) deja de ser algo que se *muestra* y pasa a ser algo que se *registra*.
+
+### B49 · El cajero ve el arqueo, las diferencias y el historial de turnos 🔴
+- **Dónde:** [`app/caja/CajaClient.tsx`](../app/caja/CajaClient.tsx) — el historial de turnos
+  cerrados se carga para todo el mundo (`getClosedSessions(10, role === "cajero" ? userId : undefined)`,
+  L146 y L241); solo el panel de "ventas del turno" está detrás de `role === "admin"` (L1034).
+  Las líneas de **Sobró / Faltó / ✓ cuadró** y el efectivo contado se renderizan sin chequear rol.
+- **Qué pasa:** el cajero ve su propio descuadre histórico y, al cerrar, la diferencia en vivo
+  contra lo esperado. El filtrado por `userId` es un filtro de *alcance*, no de *permiso*: la
+  información sensible igual llega al cliente.
+- **Impacto:** invita a cuadrar el conteo hacia atrás en vez de contar de verdad. Pega en la
+  prioridad #2 (que la caja cuadre) porque contamina la medición con la que se detecta el faltante.
+- **Alcance decidido:**
+  - **Cajero** → solo su **sesión actual**: abrirla (tipeando el fondo inicial y nada más),
+    registrar entradas/salidas, ver las ventas del turno en curso para anular, y cerrarla
+    (tipea lo contado, sin ver la diferencia resultante).
+  - **Admin** → historial completo de turnos y, en cada cierre, el contado en **pesos, reales,
+    digital/transferencia y PIX** (esto último ya separado por B46) más la diferencia.
+- **Nota de implementación:** el corte va **en el servidor** (`lib/services/cashSessions.ts` +
+  el borde que arma los props), no ocultando divs. Hoy `role` llega por header desde
+  [`app/caja/page.tsx`](../app/caja/page.tsx), lo cual está bien como fuente, pero los datos del
+  arqueo no deben salir del server para un cajero. Se cruza con B47 (borde server) y B36/B5.
+
+### B50 · El retiro de recaudación se muestra pero no se persiste 🔴 — segunda mitad de B40
+- **Dónde:** [`app/caja/CajaClient.tsx`](../app/caja/CajaClient.tsx) — form de apertura.
+- **Qué pasa:** B40 dejó visible cuánto se retiró entre el cierre anterior y la apertura, pero el
+  número **no se guarda en ningún lado**. Sigue sin haber con qué auditar la recaudación.
+- **Fix decidido:** al abrir un turno, el sistema toma el efectivo contado en el cierre anterior
+  (UYU y BRL) y lo compara con el fondo inicial declarado. Si el fondo es menor, la caja **se abre
+  igual y se trabaja con normalidad**, pero la diferencia se registra automáticamente como
+  **movimiento de salida** ("retiro de recaudación") vía `register_cash_movement`. El local tenía
+  X al cerrar y tiene Y al abrir: esos X−Y salieron y quedan contabilizados.
+- **Cambio respecto de B40:** el cajero **ya no ve** el contado anterior ni el retiro calculado
+  (queda subsumido en B49). Solo tipea con cuánto abre. El retiro es un asiento del sistema que
+  ve el admin.
+- **Sigue descartado:** arrastrar el contado anterior como fondo automático. Se simuló contra 29
+  turnos reales y producía faltantes falsos de hasta −$23.700, porque asume que la plata se queda
+  cuando en realidad se retira.
+- **Sin decidir todavía:** a quién se le atribuye el movimiento (el cajero que abre es el único
+  presente, pero no es quien retiró) y qué pasa si el fondo declarado es **mayor** que el cierre
+  anterior — hoy B40 lo avisa en rojo; como entrada de plata sin origen, probablemente deba
+  registrarse como entrada y quedar marcado para el admin.
 
 ---
 
