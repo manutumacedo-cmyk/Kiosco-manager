@@ -109,8 +109,15 @@ export default function CyberNav({ role }: Props) {
       router.refresh();
     } catch (error) {
       console.error("Error al cerrar sesión:", error);
+    } finally {
+      // B53 · Este nav vive en el layout y SOBREVIVE a la navegación de cliente
+      // (logout → /login → login → "/" son todos router.push). Si esto no se
+      // resetea en el camino exitoso, el próximo login en el mismo navegador
+      // arranca con el modal de salida abierto y clavado en "Saliendo...", y el
+      // guard de handleLogout deja el botón Salir muerto.
       setLoggingOut(false);
       setPreguntandoSalida(false);
+      setAsistenciaAbierta(null);
     }
   }
 

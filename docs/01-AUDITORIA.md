@@ -826,6 +826,21 @@ Salieron de auditar el fix de B26 con Opus. Son **pre-existentes**, no los intro
   único sobre `lower(username)`), guardando aparte el nombre con el formato lindo para
   mostrarlo. Va junto con B51: son la misma constraint.
 
+### B53 · El modal "¿Te vas del local?" reaparece clavado al volver a loguearse 🟠 — ✅ RESUELTO
+- **Dónde:** [`components/CyberNav.tsx`](../components/CyberNav.tsx) — `cerrarSesion()` (M12).
+- **Qué pasa:** el nav vive en el layout y **sobrevive a la navegación de cliente**
+  (el logout hace `router.push("/login")` y el login `router.push("/")`; nada desmonta el
+  componente). `cerrarSesion` seteaba `loggingOut=true` y dejaba `preguntandoSalida=true`,
+  y en el camino exitoso **nunca los reseteaba**. Resultado: el siguiente login en el mismo
+  navegador arranca con el modal de salida abierto, clavado en "Saliendo...", y como
+  `handleLogout` tiene guard sobre esos flags, el botón Salir queda muerto. Reportado por
+  el dueño con captura, minutos después de deployar M12 (PR #10).
+- **Impacto:** primer contacto del personal con M12 es un modal fantasma tapando el home.
+  Se cierra con "Cancelar", pero confunde y deja Salir inutilizado hasta recargar.
+- **Fix aplicado:** `finally` en `cerrarSesion` que resetea `loggingOut`,
+  `preguntandoSalida` y `asistenciaAbierta` — el estado del modal no debe sobrevivir al
+  logout, ni en éxito ni en error.
+
 ---
 
 ## 🔔 CENTRO DE NOTIFICACIONES DEL NEGOCIO (2026-08-30) — M11
