@@ -12,8 +12,10 @@ import {
   ComboIcon,
   ChartIcon,
   UsersIcon,
+  AttendanceIcon,
   LogoutIcon,
 } from "./Icons";
+import AttendanceControl from "./AttendanceControl";
 
 type Role = "admin" | "cajero";
 type Accent = "cyan" | "magenta";
@@ -38,6 +40,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/combos", label: "Combos", Icon: ComboIcon, accent: "magenta", roles: ["admin", "cajero"] },
   { href: "/reportes/hoy", label: "Reportes", Icon: ChartIcon, accent: "magenta", roles: ["admin"], activePrefix: "/reportes", badgeNotificaciones: true },
   { href: "/usuarios", label: "Usuarios", Icon: UsersIcon, accent: "magenta", roles: ["admin"] },
+  { href: "/asistencia", label: "Asistencia", Icon: AttendanceIcon, accent: "cyan", roles: ["admin"] },
 ];
 
 interface Props {
@@ -152,6 +155,9 @@ export default function CyberNav({ role }: Props) {
               />
             )}
           </Link>
+
+          {/* Asistencia — marcar entrada/salida del local */}
+          <AttendanceControl />
 
           {/* Salir */}
           <button

@@ -7,12 +7,16 @@ const SESSION_CHECK_COOKIE_NAME = "24siete_session_check";
 const SESSION_CHECK_INTERVAL_MS = 3 * 60 * 1000; // revalidar sesión contra la DB cada ~3 min
 
 // Rutas accesibles solo por admin (páginas y API routes bajo ese prefijo)
+// Ojo: "/asistencia" (página de historial) es solo admin, pero
+// "/api/asistencia/..." NO está acá — los cajeros marcan entrada/salida por
+// esas rutas; el GET del historial chequea el rol dentro del handler.
 const ADMIN_ONLY_ROUTES = [
   "/reportes",
   "/historial",
   "/usuarios",
   "/api/usuarios",
   "/api/notificaciones", // M11 — avisos del negocio, solo el dueño los ve
+  "/asistencia",
 ];
 
 function getSecret(): Uint8Array {
