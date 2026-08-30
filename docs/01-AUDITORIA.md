@@ -763,6 +763,35 @@ Salieron de auditar el fix de B26 con Opus. Son **pre-existentes**, no los intro
 
 ---
 
+## 🔔 CENTRO DE NOTIFICACIONES DEL NEGOCIO (2026-08-30) — M11
+
+### M11 · Última conexión por usuario + aviso de login fuera de horario
+- **Por qué:** el kiosco es nocturno y el dueño no está presente todas las noches. Hoy no hay
+  forma de saber cuándo entró cada cajero al sistema sin abrir la base. Un login a las 11 de la
+  mañana no es necesariamente un robo, pero es algo que el dueño quiere ver.
+- **Horario normal de trabajo:** **18:30 a 03:30**, hora de Rivera (`America/Montevideo`, UTC−3).
+  La ventana cruza la medianoche, así que la comparación es `minutos ≥ 18:30 OR minutos ≤ 03:30`.
+- **Zona horaria:** el server corre en UTC y en el código **no había ningún manejo de TZ**.
+  Comparar la hora cruda correría la ventana 3 horas y haría que las alertas salieran todas mal.
+  Se centraliza en [`lib/horarioKiosco.ts`](../lib/horarioKiosco.ts) con `Intl` y `hourCycle: h23`.
+- **Última conexión:** **no se agrega columna a `users`.** `user_sessions` ya guarda `created_at`,
+  `ip_address` y `user_agent` en cada login (ver `migration_sesiones_y_borrado_usuarios.sql`);
+  la última conexión es el `max(created_at)` por usuario. Un `last_login_at` paralelo sería
+  estado duplicado que se desincroniza a la primera excepción.
+- **Alcance del aviso:** solo rol `cajero`. El admin entra a cualquier hora a mirar reportes;
+  notificar eso sería ruido que tapa las alertas que importan.
+- **Tabla `notifications`:** genérica desde el arranque (`tipo`, `severidad`, `titulo`, `mensaje`,
+  `metadata` jsonb), porque el destino es un canal de avisos del negocio, no solo de logins.
+  Migración: [`lib/sql/migration_m11_notificaciones.sql`](../lib/sql/migration_m11_notificaciones.sql).
+- **Dónde se ve:** nueva hoja **Reportes → Notificaciones**, admin-only, con badge de no leídas en
+  el nav. `/api/notificaciones` se agrega a `ADMIN_ONLY_ROUTES` en `middleware.ts` — `/reportes` ya
+  estaba, pero un endpoint nuevo bajo un prefijo no listado queda abierto a los cajeros.
+- **No bloquea el login:** el insert de la notificación va en try/catch dentro de
+  `app/api/auth/login/route.ts`. Si la notificación falla, el cajero entra igual — prioridad #1 es
+  que la caja no se trabe en hora pico.
+
+---
+
 ## 💡 OPORTUNIDADES DE MEJORA (no son bugs, suman a las prioridades)
 
 | ID | Mejora | Prioridad de negocio | Cerrado en |
@@ -777,6 +806,7 @@ Salieron de auditar el fix de B26 con Opus. Son **pre-existentes**, no los intro
 | **M8** | Guardar **moneda + pagado + vuelto** en cada venta | 💵 Cuadre | Fase 1.2 |
 | **M9** | **Impresión de ticket / comanda** (opcional, según necesidad) | 🧾 Extra | — |
 | **M10** | **Rediseño UI del POS** — grid de botones por categoría, panel de cobro colapsable en modal, atajos visibles en pantalla. Elimina la búsqueda como flujo principal. | ⚡ Rápido | Fase 3.0 |
+| **M11** | **Última conexión por usuario + centro de notificaciones** (aviso de login fuera de 18:30–03:30) | 👥 Turnos + 🔒 Control | 2026-08-30 |
 
 ---
 

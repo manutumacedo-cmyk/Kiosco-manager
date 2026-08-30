@@ -31,7 +31,7 @@ export async function verifyCredentials(
 }
 
 export async function listUsers(): Promise<
-  (AppUser & { created_at: string; sesionActiva: boolean })[]
+  (AppUser & { created_at: string; sesionActiva: boolean; ultimoLogin: string | null })[]
 > {
   const { data } = await supabaseServer
     .from("users")
@@ -40,14 +40,39 @@ export async function listUsers(): Promise<
     .order("created_at");
   const users = data ?? [];
 
+  const ahora = new Date().toISOString();
+
   const { data: activeSessions } = await supabaseServer
     .from("user_sessions")
     .select("user_id")
     .is("ended_at", null)
-    .gt("expires_at", new Date().toISOString());
+    .gt("expires_at", ahora);
   const activeUserIds = new Set((activeSessions ?? []).map((s) => s.user_id));
 
-  return users.map((u) => ({ ...u, sesionActiva: activeUserIds.has(u.id) }));
+  // Última conexión (M11): NO se guarda en `users`, se deriva de user_sessions, que es
+  // donde ya se escribe en cada login. Una columna paralela se desincronizaría.
+  // Una query por usuario en vez de traer la tabla entera y agrupar en JS: son 3-5
+  // usuarios, y traer todo chocaría contra el límite de 1000 filas de PostgREST en
+  // cuanto se acumulen logins (a ~2 por noche, poco más de un año).
+  const ultimosLogins = await Promise.all(
+    users.map(async (u) => {
+      const { data } = await supabaseServer
+        .from("user_sessions")
+        .select("created_at")
+        .eq("user_id", u.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return [u.id, data?.created_at ?? null] as const;
+    })
+  );
+  const ultimoLoginPorUser = new Map(ultimosLogins);
+
+  return users.map((u) => ({
+    ...u,
+    sesionActiva: activeUserIds.has(u.id),
+    ultimoLogin: ultimoLoginPorUser.get(u.id) ?? null,
+  }));
 }
 
 export async function createUser(

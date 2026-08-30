@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import type { AppUser } from "@/lib/services/users";
+import { fechaHoraLocal, estaEnHorario } from "@/lib/horarioKiosco";
 
-type User = AppUser & { created_at: string; sesionActiva: boolean };
+type User = AppUser & { created_at: string; sesionActiva: boolean; ultimoLogin: string | null };
 
 export default function UsuariosClient({
   initialUsers,
@@ -207,6 +208,7 @@ export default function UsuariosClient({
               <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Rol</th>
               <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Estado</th>
               <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Sesión</th>
+              <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Última conexión</th>
               <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Creado</th>
               <th className="p-3 text-left text-[var(--text-secondary)] uppercase text-xs tracking-wide">Acciones</th>
             </tr>
@@ -258,6 +260,27 @@ export default function UsuariosClient({
                       <span className="text-xs px-2 py-1 rounded-full border border-[var(--slate-gray)] text-[var(--text-secondary)]">
                         ⚪ Sin sesión
                       </span>
+                    )}
+                  </td>
+                  <td className="p-3 font-mono text-xs">
+                    {u.ultimoLogin ? (
+                      <span
+                        className={
+                          estaEnHorario(new Date(u.ultimoLogin))
+                            ? "text-[var(--text-secondary)]"
+                            : "text-[var(--warning)]"
+                        }
+                        title={
+                          estaEnHorario(new Date(u.ultimoLogin))
+                            ? "Dentro del horario de trabajo"
+                            : "Fuera del horario de trabajo (18:30 a 03:30)"
+                        }
+                      >
+                        {fechaHoraLocal(u.ultimoLogin)}
+                        {!estaEnHorario(new Date(u.ultimoLogin)) && " ⚠"}
+                      </span>
+                    ) : (
+                      <span className="text-[var(--text-secondary)] opacity-50">Nunca</span>
                     )}
                   </td>
                   <td className="p-3 text-[var(--text-secondary)] font-mono text-xs">

@@ -196,3 +196,22 @@ export interface ExchangeRateConfig {
   rate: number;
   updated_at: string;
 }
+
+/**
+ * Aviso del negocio para el admin (M11). Genérico por `tipo` + `metadata`: el primero es
+ * 'login_fuera_horario', pero la tabla está pensada para lo que venga (descuadres grandes,
+ * anulaciones tardías) sin migración nueva.
+ */
+export interface Notification {
+  id: string;
+  tipo: string;
+  severidad: "info" | "alerta" | "critico";
+  titulo: string;
+  mensaje: string;
+  /** Usuario al que se REFIERE el aviso, no el destinatario. */
+  user_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  leida_at: string | null;
+  leida_por: string | null;
+}

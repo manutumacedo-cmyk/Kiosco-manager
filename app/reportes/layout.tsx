@@ -2,15 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChartIcon, HistoryIcon, CashFlowIcon } from "@/components/Icons";
+import { ChartIcon, HistoryIcon, CashFlowIcon, BellIcon } from "@/components/Icons";
 
-// Reportes es una rama: tres hojas sobre el mismo dato (las ventas de un turno).
-// El dashboard agrega, el historial lista ticket por ticket, movimientos muestra
-// la plata que entra y sale por fuera de las ventas.
+// Reportes es una rama. Tres hojas miran el mismo dato (las ventas de un turno): el
+// dashboard agrega, el historial lista ticket por ticket, movimientos muestra la plata
+// que entra y sale por fuera de las ventas. La cuarta, notificaciones, es de otra
+// naturaleza — avisos que el sistema le manda al dueño — pero vive acá porque es donde
+// el dueño mira lo que pasó cuando no estaba.
 const HOJAS = [
   { href: "/reportes/hoy", label: "Dashboard", Icon: ChartIcon },
   { href: "/reportes/ventas", label: "Historial", Icon: HistoryIcon },
   { href: "/reportes/movimientos", label: "Movimientos", Icon: CashFlowIcon },
+  { href: "/reportes/notificaciones", label: "Notificaciones", Icon: BellIcon },
 ];
 
 export default function ReportesLayout({ children }: { children: React.ReactNode }) {

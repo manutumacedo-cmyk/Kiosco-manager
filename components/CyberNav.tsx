@@ -26,6 +26,8 @@ interface NavItem {
   roles: Role[];
   /** Prefijo para marcar activo cuando la rama tiene hojas (ej. Reportes). */
   activePrefix?: string;
+  /** Muestra el contador de avisos sin leer (M11). Solo en Reportes. */
+  badgeNotificaciones?: boolean;
 }
 
 // Todas las opciones del home, en la barra de arriba. Acentos espejados con el
@@ -34,7 +36,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/ventas/nueva", label: "Nueva Venta", Icon: CartIcon, accent: "magenta", roles: ["admin", "cajero"] },
   { href: "/productos", label: "Productos", Icon: BoxIcon, accent: "cyan", roles: ["admin", "cajero"] },
   { href: "/combos", label: "Combos", Icon: ComboIcon, accent: "magenta", roles: ["admin", "cajero"] },
-  { href: "/reportes/hoy", label: "Reportes", Icon: ChartIcon, accent: "magenta", roles: ["admin"], activePrefix: "/reportes" },
+  { href: "/reportes/hoy", label: "Reportes", Icon: ChartIcon, accent: "magenta", roles: ["admin"], activePrefix: "/reportes", badgeNotificaciones: true },
   { href: "/usuarios", label: "Usuarios", Icon: UsersIcon, accent: "magenta", roles: ["admin"] },
 ];
 
@@ -47,12 +49,24 @@ export default function CyberNav({ role }: Props) {
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
   const [cajaAbierta, setCajaAbierta] = useState(false);
+  const [avisosSinLeer, setAvisosSinLeer] = useState(0);
 
   useEffect(() => {
     getOpenSession()
       .then((s) => setCajaAbierta(!!s))
       .catch(() => {});
   }, []);
+
+  // Avisos del negocio sin leer (M11). Solo el admin los tiene: para el cajero el
+  // endpoint está cerrado por middleware, así que ni se pide. Se lee al montar el nav
+  // — alcanza para que el dueño se entere sin tener que entrar a buscar.
+  useEffect(() => {
+    if (role !== "admin") return;
+    fetch("/api/notificaciones?count=1")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setAvisosSinLeer(d?.count ?? 0))
+      .catch(() => {});
+  }, [role, pathname]);
 
   async function handleLogout() {
     if (loggingOut) return;
@@ -89,7 +103,7 @@ export default function CyberNav({ role }: Props) {
 
         {/* Navegación */}
         <div className="flex flex-wrap items-center gap-2">
-          {visible.map(({ href, label, Icon, accent, activePrefix }) => {
+          {visible.map(({ href, label, Icon, accent, activePrefix, badgeNotificaciones }) => {
             const accentVar = accent === "cyan" ? "--neon-cyan" : "--neon-magenta";
             const active = isActive(href, activePrefix);
             return (
@@ -106,6 +120,14 @@ export default function CyberNav({ role }: Props) {
               >
                 <Icon size={20} className="flex-shrink-0" />
                 <span className="hidden md:inline">{label}</span>
+                {badgeNotificaciones && avisosSinLeer > 0 && (
+                  <span
+                    className="min-w-[18px] rounded-full bg-[var(--error)] px-1.5 text-center text-[11px] font-bold leading-[18px] text-white"
+                    title={`${avisosSinLeer} aviso${avisosSinLeer === 1 ? "" : "s"} sin leer`}
+                  >
+                    {avisosSinLeer > 99 ? "99+" : avisosSinLeer}
+                  </span>
+                )}
               </Link>
             );
           })}
