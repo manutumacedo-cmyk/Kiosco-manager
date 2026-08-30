@@ -40,6 +40,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/combos", label: "Combos", Icon: ComboIcon, accent: "magenta", roles: ["admin", "cajero"] },
   { href: "/reportes/hoy", label: "Reportes", Icon: ChartIcon, accent: "magenta", roles: ["admin"], activePrefix: "/reportes", badgeNotificaciones: true },
   { href: "/usuarios", label: "Usuarios", Icon: UsersIcon, accent: "magenta", roles: ["admin"] },
+  { href: "/perfil", label: "Mi perfil", Icon: AttendanceIcon, accent: "cyan", roles: ["admin", "cajero"] },
   { href: "/asistencia", label: "Asistencia", Icon: AttendanceIcon, accent: "cyan", roles: ["admin"] },
 ];
 
@@ -53,6 +54,9 @@ export default function CyberNav({ role }: Props) {
   const [loggingOut, setLoggingOut] = useState(false);
   const [cajaAbierta, setCajaAbierta] = useState(false);
   const [avisosSinLeer, setAvisosSinLeer] = useState(0);
+  // Panel previo al logout (M12): antes de salir se ofrece marcar la salida.
+  const [preguntandoSalida, setPreguntandoSalida] = useState(false);
+  const [asistenciaAbierta, setAsistenciaAbierta] = useState<{ check_in: string } | null>(null);
 
   useEffect(() => {
     getOpenSession()
@@ -71,21 +75,48 @@ export default function CyberNav({ role }: Props) {
       .catch(() => {});
   }, [role, pathname]);
 
+  /**
+   * Salir no es lo mismo que irse del local: en el POS compartido uno se
+   * desloguea para que opere otro y sigue trabajando. Por eso antes de cerrar
+   * sesión se pregunta, en vez de marcar la salida sola. Marcarla es opcional.
+   */
   async function handleLogout() {
+    if (loggingOut || preguntandoSalida) return;
+    try {
+      const res = await fetch("/api/asistencia/estado");
+      const data = res.ok ? await res.json() : null;
+      if (data?.open) {
+        setAsistenciaAbierta(data.open);
+        setPreguntandoSalida(true);
+        return;
+      }
+    } catch (error) {
+      // Si no se puede consultar, no se traba la salida: se cierra sesión.
+      console.error("No se pudo consultar la asistencia:", error);
+    }
+    await cerrarSesion();
+  }
+
+  async function cerrarSesion(marcarSalida = false) {
     if (loggingOut) return;
     setLoggingOut(true);
-
     try {
+      if (marcarSalida) {
+        await fetch("/api/asistencia/salida", { method: "POST" });
+      }
       await fetch("/api/auth/logout", { method: "POST" });
       router.push("/login");
       router.refresh();
     } catch (error) {
       console.error("Error al cerrar sesión:", error);
       setLoggingOut(false);
+      setPreguntandoSalida(false);
     }
   }
 
-  if (pathname.startsWith("/login")) return null;
+  // La pantalla de llegada es bloqueante: sin la barra, porque cualquier link
+  // de ahí rebota contra el gate y solo invita a tocar lo que no va a andar.
+  if (pathname.startsWith("/login") || pathname.startsWith("/perfil/llegada")) return null;
 
   // Una rama queda activa en cualquiera de sus hojas (activePrefix); una hoja suelta,
   // solo en su propia ruta y sus sub-rutas.
@@ -156,7 +187,7 @@ export default function CyberNav({ role }: Props) {
             )}
           </Link>
 
-          {/* Asistencia — marcar entrada/salida del local */}
+          {/* Asistencia — el estado se ve acá, se marca en /perfil */}
           <AttendanceControl />
 
           {/* Salir */}
@@ -170,6 +201,52 @@ export default function CyberNav({ role }: Props) {
             <span className="hidden md:inline">{loggingOut ? "..." : "Salir"}</span>
           </button>
         </div>
+
+        {/* Antes de cerrar sesión: ¿marcás también la salida del local? */}
+        {preguntandoSalida && asistenciaAbierta && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+            <div className="data-card w-full max-w-sm space-y-4 border-[var(--warning)]">
+              <h2 className="text-lg font-bold uppercase tracking-wide text-[var(--warning)]">
+                ¿Te vas del local?
+              </h2>
+              <p className="text-sm text-[var(--text-secondary)]">
+                Estás marcado en el local desde las{" "}
+                <span className="font-bold text-[var(--text-primary)]">
+                  {new Intl.DateTimeFormat("es-UY", {
+                    timeZone: "America/Montevideo",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hourCycle: "h23",
+                  }).format(new Date(asistenciaAbierta.check_in))}
+                </span>
+                . Si seguís trabajando y solo cerrás sesión para que entre otro, salí sin marcar.
+              </p>
+              <div className="space-y-2">
+                <button
+                  onClick={() => cerrarSesion(true)}
+                  disabled={loggingOut}
+                  className="min-h-[48px] w-full rounded-lg border-2 border-[var(--warning)] px-3 py-2 text-sm font-bold uppercase tracking-wide text-[var(--warning)] transition-all hover:bg-[rgba(255,170,0,0.1)] disabled:opacity-40"
+                >
+                  {loggingOut ? "Saliendo..." : "Marcar salida y cerrar sesión"}
+                </button>
+                <button
+                  onClick={() => cerrarSesion(false)}
+                  disabled={loggingOut}
+                  className="min-h-[48px] w-full rounded-lg border border-[var(--slate-gray)] px-3 py-2 text-sm text-[var(--text-secondary)] transition-all hover:border-[var(--error)] hover:text-[var(--error)] disabled:opacity-40"
+                >
+                  Cerrar sesión sin marcar salida
+                </button>
+                <button
+                  onClick={() => setPreguntandoSalida(false)}
+                  disabled={loggingOut}
+                  className="min-h-[40px] w-full text-xs uppercase tracking-wide text-[var(--text-muted)] transition-all hover:text-[var(--text-secondary)] disabled:opacity-40"
+                >
+                  Cancelar, me quedo
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </nav>
   );

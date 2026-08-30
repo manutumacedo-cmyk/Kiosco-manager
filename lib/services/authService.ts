@@ -3,6 +3,14 @@ import { cookies } from "next/headers";
 import type { UserRole } from "@/lib/services/users";
 
 const AUTH_COOKIE_NAME = "24siete_auth_token";
+
+/**
+ * Marca que este login todavía no registró la llegada al local (M12). La pone
+ * el login y la borra el POST de entrada. Vive como cookie y no como consulta
+ * a la base porque el gate corre en el middleware (Edge Runtime, sin Supabase)
+ * y se evalúa en cada request: tiene que ser gratis.
+ */
+export const LLEGADA_PENDIENTE_COOKIE = "24siete_llegada_pendiente";
 const TOKEN_MAX_AGE = 60 * 60 * 8; // 8 horas (duración de un turno)
 
 function getSecret(): Uint8Array {

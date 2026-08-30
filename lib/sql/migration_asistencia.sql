@@ -23,3 +23,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_open
 
 CREATE INDEX IF NOT EXISTS idx_attendance_checkin
   ON attendance(check_in DESC);
+
+-- El perfil lista los registros del propio usuario, mas recientes primero (M12).
+CREATE INDEX IF NOT EXISTS idx_attendance_user_checkin
+  ON attendance(user_id, check_in DESC);
+
+COMMENT ON TABLE attendance IS
+  'Presencia fisica en el local: llegada obligatoria al iniciar sesion, salida opcional. Ver M12.';

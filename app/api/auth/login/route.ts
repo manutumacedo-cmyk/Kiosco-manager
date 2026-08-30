@@ -4,9 +4,12 @@ import { verifyCredentials } from "@/lib/services/users";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { notificarLoginFueraDeHorario } from "@/lib/services/notifications";
 import { estaEnHorario } from "@/lib/horarioKiosco";
+import { getOpenAttendance } from "@/lib/services/attendance";
+import { LLEGADA_PENDIENTE_COOKIE } from "@/lib/services/authService";
 
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutos
 const MAX_ATTEMPTS = 5;
+const TOKEN_MAX_AGE_LLEGADA = 60 * 60 * 8; // igual que la sesión
 
 async function isRateLimited(username: string, ip: string): Promise<boolean> {
   const since = new Date(Date.now() - WINDOW_MS).toISOString();
@@ -107,7 +110,33 @@ export async function POST(request: NextRequest) {
     });
     await setAuthCookie(token);
 
-    return NextResponse.json({ success: true, role: user.role });
+    // Marcar la llegada es obligatorio al iniciar sesión (M12). Si ya hay una
+    // entrada abierta no se vuelve a pedir: en el POS compartido el mismo
+    // cajero se desloguea y loguea varias veces por noche, y ya está en el local.
+    let llegadaPendiente = false;
+    try {
+      llegadaPendiente = (await getOpenAttendance(user.id)) === null;
+    } catch (error) {
+      // Si no se puede consultar, no se traba el ingreso: prioridad #1 es que
+      // la caja funcione. Se pedirá en el próximo login.
+      console.error("No se pudo consultar la asistencia abierta:", error);
+    }
+
+    const response = NextResponse.json({
+      success: true,
+      role: user.role,
+      llegadaPendiente,
+    });
+    if (llegadaPendiente) {
+      response.cookies.set(LLEGADA_PENDIENTE_COOKIE, "1", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: TOKEN_MAX_AGE_LLEGADA,
+        path: "/",
+      });
+    }
+    return response;
   } catch (error) {
     console.error("Error en login:", error);
     return NextResponse.json({ error: "Error del servidor" }, { status: 500 });

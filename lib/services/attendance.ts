@@ -79,3 +79,46 @@ export async function listAttendance(limit = 200): Promise<AttendanceWithUser[]>
     };
   });
 }
+
+/** Registros del propio usuario, para mostrarle su historial en el perfil. */
+export async function listAttendanceByUser(
+  userId: string,
+  limit = 20
+): Promise<AttendanceRecord[]> {
+  const { data, error } = await supabaseServer
+    .from("attendance")
+    .select("id, user_id, check_in, check_out")
+    .eq("user_id", userId)
+    .order("check_in", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+/**
+ * Entradas que quedaron abiertas mucho más de lo que dura un turno: alguien
+ * marcó llegada, cerró el navegador y se fue sin marcar la salida. No se
+ * cierran solas (inventar una hora de salida sería inventar un dato); se
+ * listan para avisarle al dueño y que las corrija.
+ *
+ * El umbral son 14 horas: el turno más largo posible es 18:30 a 03:30 (9h),
+ * así que a las 14h ya no hay ninguna explicación honesta.
+ */
+export async function getEntradasSinCerrar(
+  horas = 14
+): Promise<AttendanceWithUser[]> {
+  const limite = new Date(Date.now() - horas * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabaseServer
+    .from("attendance")
+    .select("id, user_id, check_in, check_out, users(username)")
+    .is("check_out", null)
+    .lt("check_in", limite)
+    .order("check_in", { ascending: false });
+  if (error) throw new Error(error.message);
+
+  return (data ?? []).map((r) => {
+    const users = r.users as { username: string } | { username: string }[] | null;
+    const username = Array.isArray(users) ? users[0]?.username ?? "?" : users?.username ?? "?";
+    return { id: r.id, user_id: r.user_id, check_in: r.check_in, check_out: r.check_out, username };
+  });
+}

@@ -718,9 +718,10 @@ Salieron de auditar el fix de B26 con Opus. Son **pre-existentes**, no los intro
 > Decisión del dueño: **el descuadre es información del dueño, no del personal.** Un cajero que ve
 > la diferencia en vivo tiene el incentivo de ajustar el conteo hasta que dé cero, y eso rompe
 > justamente lo que el arqueo (B28) vino a medir. Además, el hueco de recaudación entre turnos
-> (B40) deja de ser algo que se *muestra* y pasa a ser algo que se *registra*.
+> (B40) deja de ser algo que se *muestra* y pasa a ser algo que se *consulta*: quedó como vista
+> derivada, no como asiento (ver B50 — persistirlo como salida rompía el arqueo).
 
-### B49 · El cajero ve el arqueo, las diferencias y el historial de turnos 🔴
+### B49 · El cajero ve el arqueo, las diferencias y el historial de turnos 🔴 — ✅ RESUELTO (commit 638e0011)
 - **Dónde:** [`app/caja/CajaClient.tsx`](../app/caja/CajaClient.tsx) — el historial de turnos
   cerrados se carga para todo el mundo (`getClosedSessions(10, role === "cajero" ? userId : undefined)`,
   L146 y L241); solo el panel de "ventas del turno" está detrás de `role === "admin"` (L1034).
@@ -736,30 +737,47 @@ Salieron de auditar el fix de B26 con Opus. Son **pre-existentes**, no los intro
     (tipea lo contado, sin ver la diferencia resultante).
   - **Admin** → historial completo de turnos y, en cada cierre, el contado en **pesos, reales,
     digital/transferencia y PIX** (esto último ya separado por B46) más la diferencia.
-- **Nota de implementación:** el corte va **en el servidor** (`lib/services/cashSessions.ts` +
-  el borde que arma los props), no ocultando divs. Hoy `role` llega por header desde
-  [`app/caja/page.tsx`](../app/caja/page.tsx), lo cual está bien como fuente, pero los datos del
-  arqueo no deben salir del server para un cajero. Se cruza con B47 (borde server) y B36/B5.
+- **Fix aplicado (2026-08-30):** todo detrás de `esAdmin` en `CajaClient.tsx`. Para el cajero
+  no se llaman `getClosedSessions` ni `getLastClosedSession` (el dato no se pide), la apertura es
+  solo los dos campos de fondo, y el cierre es un **conteo a ciegas**: se le oculta el desglose
+  entero de plata (fondo, efectivo, digital, entradas, salidas), no solo el esperado — con
+  `Total ventas` + efectivo se despejaba lo digital por resta, y con efectivo + fondo + entradas
+  − salidas se despejaba el esperado por suma. La nota es opcional para él y nunca traba el
+  cierre; el contado igual viaja al RPC, así que la diferencia queda grabada para el admin (B28
+  intacto). Verificado en producción por el dueño. Auditado por un agente independiente con
+  contexto limpio (Fable 5), que validó el camino del cajero por lectura de código.
+- **Límite honesto (esto NO es lo que decía la primera versión de esta nota):** el corte es
+  **del lado del cliente**. Con RLS `USING (true)` (B36/B5) los turnos cerrados siguen siendo
+  alcanzables con la anon key desde la consola: B49 hace que los datos **no se pidan**, no que no
+  se puedan pedir. El corte duro en el servidor queda diferido a B47 + B36/B5.
 
-### B50 · El retiro de recaudación se muestra pero no se persiste 🔴 — segunda mitad de B40
+### B50 · El retiro de recaudación se muestra pero no se persiste 🔴 — segunda mitad de B40 — ✅ RESUELTO (vista + panel, 2026-08-30)
 - **Dónde:** [`app/caja/CajaClient.tsx`](../app/caja/CajaClient.tsx) — form de apertura.
 - **Qué pasa:** B40 dejó visible cuánto se retiró entre el cierre anterior y la apertura, pero el
   número **no se guarda en ningún lado**. Sigue sin haber con qué auditar la recaudación.
-- **Fix decidido:** al abrir un turno, el sistema toma el efectivo contado en el cierre anterior
-  (UYU y BRL) y lo compara con el fondo inicial declarado. Si el fondo es menor, la caja **se abre
-  igual y se trabaja con normalidad**, pero la diferencia se registra automáticamente como
-  **movimiento de salida** ("retiro de recaudación") vía `register_cash_movement`. El local tenía
-  X al cerrar y tiene Y al abrir: esos X−Y salieron y quedan contabilizados.
-- **Cambio respecto de B40:** el cajero **ya no ve** el contado anterior ni el retiro calculado
-  (queda subsumido en B49). Solo tipea con cuánto abre. El retiro es un asiento del sistema que
-  ve el admin.
+- **El fix decidido primero era registrarlo con `register_cash_movement` al abrir — y se
+  descartó al chocar con la base:** `diferencia_uyu/brl` son columnas **GENERATED** que restan
+  `total_salidas_*` del esperado. Grabar el retiro (~$17.000) como salida del turno que abre le
+  baja el esperado en esa cifra y esa noche cerraría con un "Sobró $17.000" **falso**. Habría
+  roto el arqueo con la herramienta que venía a protegerlo.
+- **Fix aplicado (2026-08-30):** vista **`diferencias_entre_turnos`**
+  ([`lib/sql/migration_b50_diferencias_entre_turnos.sql`](../lib/sql/migration_b50_diferencias_entre_turnos.sql)),
+  `LAG` sobre `apertura_at`: compara el contado de cada cierre con el fondo de la apertura
+  siguiente. **Derivada, no persistida** — no toca el camino de apertura, no puede
+  desincronizarse, y cubre los 81 turnos históricos desde el día uno (persistir al abrir solo
+  captura de hoy en adelante). Panel "Diferencias entre cajas" en `/caja`, solo `esAdmin`:
+  quién cerró → quién abrió, cuánto se contó → cuánto se declaró, y el retiro. Si el fondo
+  es **mayor** que el cierre anterior se marca en rojo como "apareció plata".
+- **Medido al aplicarla (2026-08-30):** $605.595 y R$ 7.892 retirados sin rastro en 79 turnos
+  comparables; 5 noches con plata aparecida; hueco máximo entre cierre y apertura siguiente:
+  1 día 11 hs. El retiro en BRL siempre iguala el contado porque nadie declara fondo en reales
+  (es B45 visto desde otro ángulo).
 - **Sigue descartado:** arrastrar el contado anterior como fondo automático. Se simuló contra 29
   turnos reales y producía faltantes falsos de hasta −$23.700, porque asume que la plata se queda
   cuando en realidad se retira.
-- **Sin decidir todavía:** a quién se le atribuye el movimiento (el cajero que abre es el único
-  presente, pero no es quien retiró) y qué pasa si el fondo declarado es **mayor** que el cierre
-  anterior — hoy B40 lo avisa en rojo; como entrada de plata sin origen, probablemente deba
-  registrarse como entrada y quedar marcado para el admin.
+- **Queda para después (si se quiere más):** un registro persistido e inmutable por apertura
+  (tabla propia, NO `cash_outflows`) si algún día hace falta un asiento firmado además del
+  cálculo derivado.
 
 ---
 
@@ -839,6 +857,50 @@ Salieron de auditar el fix de B26 con Opus. Son **pre-existentes**, no los intro
 
 ---
 
+## ⏱ ASISTENCIA DEL PERSONAL (2026-08-30) — M12
+
+### M12 · Perfil con marca de llegada y salida
+- **Por qué:** el dueño no está todas las noches y no tenía forma de saber a qué hora llegó
+  y se fue cada uno. `user_sessions` registra logins, no presencia: en el POS compartido el
+  cajero se desloguea para que opere otro y sigue trabajando en el local. Son cosas distintas.
+- **Base:** parte de la rama `feat/asistencia` (PR #9), que ya traía la tabla `attendance`,
+  las APIs de entrada/salida y el historial para el admin. **Su migración nunca se había
+  corrido**: la tabla no existía en producción, así que ese PR no habría funcionado al
+  mergearse. Se aplicó ahora, con un índice más para el listado del perfil.
+- **Card de Perfil** ([`app/perfil/`](../app/perfil/)): la ve todo el mundo, cajero y admin.
+  Muestra quién sos, si estás en el local y desde qué hora, y tus últimos registros con las
+  horas trabajadas. El `user_id` sale del token vía middleware, **nunca de la URL**: nadie
+  puede mirar la asistencia de otro cambiando un parámetro.
+- **Llegada obligatoria al iniciar sesión:** el login setea una cookie
+  `24siete_llegada_pendiente` cuando el usuario no tiene una entrada abierta, y el middleware
+  redirige a [`/perfil/llegada`](../app/perfil/llegada/) hasta que la marque. Se resuelve con
+  cookie y no consultando la base porque **el middleware corre en Edge y en cada request**:
+  tenía que ser gratis. La pantalla es bloqueante y tiene un solo botón; la barra de
+  navegación se oculta ahí, porque cualquier link rebota contra el gate.
+  - Si ya hay una entrada abierta **no se vuelve a pedir**: en el POS compartido el mismo
+    cajero entra y sale de sesión varias veces por noche, y ya está en el local.
+  - Si la consulta de asistencia falla, **el login pasa igual**. Prioridad #1 es que la caja
+    no se trabe; se pedirá en el próximo ingreso.
+- **Salida opcional, pero se pregunta:** tocar "Salir" abre un panel con tres caminos —
+  marcar salida y cerrar sesión, cerrar sesión sin marcar, o cancelar. Nunca se marca la
+  salida sola al desloguear: sería registrar que alguien se fue del local cuando en realidad
+  le pasó la caja a un compañero.
+- **Avisos en el centro de notificaciones (M11):** cada llegada y cada salida generan un
+  aviso con la **hora exacta**. La salida además dice desde qué hora estaba y cuánto estuvo,
+  para no tener que abrir el historial. La severidad sube a `alerta` cuando la marca cae
+  fuera de 18:30–03:30 (ver [[horario-trabajo-kiosco]] en `lib/horarioKiosco.ts`).
+- **Entradas que quedan sin cerrar:** alguien marca llegada, cierra el navegador y se va.
+  El sistema **no las cierra solo** — inventar una hora de salida sería inventar un dato de
+  algo que se usa para pagar horas. Se detectan a las 14 h (el turno más largo posible es 9 h)
+  y generan un aviso para que el dueño lo corrija. La detección corre al abrir el centro de
+  notificaciones, no por cron: el proyecto no tiene uno, y ese es el momento en que el aviso
+  sirve. Es idempotente por `attendance_id`, así que una entrada colgada avisa una sola vez.
+- **Marcar en un solo lugar:** el control del nav quedó como **indicador** ("En el local ·
+  18:56" / "Sin marcar") que linkea al perfil. Tener el mismo botón en dos lados invitaba a
+  marcar sin querer al pasar por la barra.
+
+---
+
 ## 💡 OPORTUNIDADES DE MEJORA (no son bugs, suman a las prioridades)
 
 | ID | Mejora | Prioridad de negocio | Cerrado en |
@@ -854,6 +916,7 @@ Salieron de auditar el fix de B26 con Opus. Son **pre-existentes**, no los intro
 | **M9** | **Impresión de ticket / comanda** (opcional, según necesidad) | 🧾 Extra | — |
 | **M10** | **Rediseño UI del POS** — grid de botones por categoría, panel de cobro colapsable en modal, atajos visibles en pantalla. Elimina la búsqueda como flujo principal. | ⚡ Rápido | Fase 3.0 |
 | **M11** | **Última conexión por usuario + centro de notificaciones** (aviso de login fuera de 18:30–03:30) | 👥 Turnos + 🔒 Control | 2026-08-30 |
+| **M12** | **Perfil con asistencia** — llegada obligatoria al iniciar sesión, salida opcional con panel al desloguear, avisos con hora exacta | 👥 Turnos + 🔒 Control | 2026-08-30 |
 
 ---
 
